@@ -27,9 +27,14 @@ import { Subscribers } from './collections/Subscribers'
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
 
+const FRONTEND_URL = process.env.FRONTEND_URL?.trim()
+const CMS_URL = process.env.PAYLOAD_PUBLIC_SERVER_URL?.trim()
+
+const allowedOrigins = [FRONTEND_URL, CMS_URL].filter(Boolean) as string[]
+
 export default buildConfig({
-  cors: ['http://localhost:3000', process.env.PAYLOAD_PUBLIC_SERVER_URL || ''],
-  csrf: ['http://localhost:3000', process.env.PAYLOAD_PUBLIC_SERVER_URL || ''],
+  cors: allowedOrigins,
+  csrf: allowedOrigins,
   onInit: async (payload) => {
     // Start the payment polling when the server starts
     startPaymentPolling(payload)
