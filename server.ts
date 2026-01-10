@@ -6,37 +6,39 @@ import dotenv from 'dotenv'
 dotenv.config()
 
 const app = express()
-app.set('trust proxy', 1)
 
-const allowedOrigins = [process.env.CORS_ORIGIN].filter(Boolean) as string[]
-
-const corsOptions: cors.CorsOptions = {
-  origin: (origin, cb) => {
-    if (!origin) return cb(null, true) // server-to-server
-    if (allowedOrigins.includes(origin)) return cb(null, true)
-    return cb(new Error(`CORS blocked for origin: ${origin}`))
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  optionsSuccessStatus: 204,
-}
-
-app.use(cors(corsOptions))
-app.options('*', cors(corsOptions))
-
+// Initialize Payload first
 const start = async () => {
+  // Verify SendGrid config before initializing Payload
+  /* if (!process.env.SENDGRID_API_KEY || !process.env.SENDGRID_FROM_EMAIL) {
+    throw new Error('Missing SendGrid configuration in .env file')
+  } */
+
   await payload.init({
     // @ts-ignore
     secret: process.env.PAYLOAD_SECRET!,
     express: app,
     onInit: () => {
-      payload.logger.info('Payload initialized')
+      payload.logger.info(`Email config: ${JSON.stringify(payload.email)}`)
     },
   })
 
-  const port = Number(process.env.PORT) || 3000
-  app.listen(port, () => console.log(`Payload CMS running on port ${port}`))
+  // Then apply CORS
+  app.use(
+    cors({
+      origin: process.env.CORS_ORIGIN,
+      credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'DELETE'],
+      allowedHeaders: ['Content-Type', 'Authorization'],
+    }),
+  )
+
+  // @ts-ignore
+  app.use('/api', payload.router)
+
+  app.listen(3000, () => {
+    console.log(`Payload CMS running on ${process.env.PAYLOAD_PUBLIC_SERVER_URL}`)
+  })
 }
 
 start()
