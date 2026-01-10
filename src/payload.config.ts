@@ -5,7 +5,6 @@ import { buildConfig } from 'payload'
 import { fileURLToPath } from 'url'
 import sharp from 'sharp'
 import { mongooseAdapter } from '@payloadcms/db-mongodb'
-import type { CORSConfig } from 'payload'
 
 import { Reservations } from './collections/Reservations'
 import { Owners } from './collections/Owners'
@@ -28,29 +27,13 @@ import { Subscribers } from './collections/Subscribers'
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
 
-const FRONTEND_ORIGINS = [
-  'https://book-that-boat-frontend.vercel.app',
-  'https://bookthatboat.ae',
-  'https://www.bookthatboat.ae',
-  'http://localhost:3000',
-]
-
-const cors =
-  process.env.NODE_ENV !== 'production'
-    ? '*'
-    : {
-        origins: FRONTEND_ORIGINS,
-        // Add any custom headers you actually send (Authorization, etc.)
-        headers: ['authorization', 'content-type', 'x-requested-with'],
-      }
-
 export default buildConfig({
-  serverURL: process.env.PAYLOAD_PUBLIC_SERVER_URL,
-  cors,
-  csrf: FRONTEND_ORIGINS,
+  cors: ['http://localhost:3000', process.env.PAYLOAD_PUBLIC_SERVER_URL || ''],
+  csrf: ['http://localhost:3000', process.env.PAYLOAD_PUBLIC_SERVER_URL || ''],
   onInit: async (payload) => {
-    // Start the payment polling when the server starts
-    startPaymentPolling(payload)
+    if (process.env.PAYMENT_POLLING_ENABLED === 'true') {
+      startPaymentPolling(payload)
+    }
   },
   admin: {
     user: Users.slug,

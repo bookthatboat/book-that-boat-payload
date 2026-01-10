@@ -144,11 +144,20 @@ export const Boats: CollectionConfig = {
     {
       name: 'slug',
       type: 'text',
-      required: true,
       unique: true,
-      admin: {
-        position: 'sidebar',
-        description: 'Unique identifier for the boat in URLs',
+      index: true,
+      required: true,
+      admin: { position: 'sidebar' },
+      hooks: {
+        beforeValidate: [
+          ({ data }) => {
+            if (!data) return data
+            if (!data.slug && data.name) {
+              data.slug = generateSlug(data.name)
+            }
+            return data
+          },
+        ],
       },
     },
     // Basic Information
