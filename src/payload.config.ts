@@ -27,14 +27,12 @@ import { Subscribers } from './collections/Subscribers'
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
 
-const FRONTEND_URL = process.env.FRONTEND_URL?.trim()
-const CMS_URL = process.env.PAYLOAD_PUBLIC_SERVER_URL?.trim()
-
-const allowedOrigins = [FRONTEND_URL, CMS_URL].filter(Boolean) as string[]
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://book-that-boat-frontend.vercel.app'
+const SERVER_URL = process.env.PAYLOAD_PUBLIC_SERVER_URL || ''
 
 export default buildConfig({
-  cors: allowedOrigins,
-  csrf: allowedOrigins,
+  cors: [FRONTEND_URL, SERVER_URL].filter(Boolean),
+  csrf: [FRONTEND_URL, SERVER_URL].filter(Boolean),
   onInit: async (payload) => {
     // Start the payment polling when the server starts
     startPaymentPolling(payload)
