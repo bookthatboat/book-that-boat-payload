@@ -7,37 +7,50 @@ dotenv.config()
 
 const app = express()
 
-// Initialize Payload first
-const start = async () => {
-  // Verify SendGrid config before initializing Payload
-  /* if (!process.env.SENDGRID_API_KEY || !process.env.SENDGRID_FROM_EMAIL) {
-    throw new Error('Missing SendGrid configuration in .env file')
-  } */
+// IMPORTANT for Railway / proxies
+app.set('trust proxy', 1)
 
+// Put CORS BEFORE payload.init so it applies to Payload routes + OPTIONS preflight
+const allowedOrigins = [
+  process.env.CORS_ORIGIN, // e.g. https://book-that-boat-frontend.vercel.app
+].filter(Boolean) as string[]
+
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      // allow server-to-server + same-origin (no Origin header)
+      if (!origin) return cb(null, true)
+
+      if (allowedOrigins.includes(origin)) return cb(null, true)
+
+      return cb(new Error(`CORS blocked for origin: ${origin}`))
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    optionsSuccessStatus: 204,
+  }),
+)
+
+// (optional but recommended)
+app.options('*', cors())
+
+const start = async () => {
   await payload.init({
     // @ts-ignore
     secret: process.env.PAYLOAD_SECRET!,
     express: app,
     onInit: () => {
-      payload.logger.info(`Email config: ${JSON.stringify(payload.email)}`)
+      payload.logger.info('Payload initialized')
     },
   })
 
-  // Then apply CORS
-  app.use(
-    cors({
-      origin: process.env.CORS_ORIGIN,
-      credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'DELETE'],
-      allowedHeaders: ['Content-Type', 'Authorization'],
-    }),
-  )
+  // ❌ REMOVE THIS LINE — Payload already mounts routes on your express app
+  // app.use('/api', payload.router)
 
-  // @ts-ignore
-  app.use('/api', payload.router)
-
-  app.listen(3000, () => {
-    console.log(`Payload CMS running on ${process.env.PAYLOAD_PUBLIC_SERVER_URL}`)
+  const port = Number(process.env.PORT) || 3000
+  app.listen(port, () => {
+    console.log(`Payload CMS running on port ${port}`)
   })
 }
 
