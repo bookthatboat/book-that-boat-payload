@@ -453,9 +453,6 @@ export interface Reservation {
  */
 export interface Boat {
   id: string;
-  /**
-   * Unique identifier for the boat in URLs
-   */
   slug: string;
   owner?: (string | null) | Owner;
   name: string;

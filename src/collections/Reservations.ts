@@ -15,12 +15,45 @@ import {
 } from '@/config'
 
 let mamoAuthBlockedUntil = 0
+let mamoRateLimitedUntil = 0
 
 /* if (!process.env.SENDGRID_API_KEY) {
   throw new Error('SENDGRID_API_KEY missing in environment variables')
 }
 
 sgMail.setApiKey(process.env.SENDGRID_API_KEY!) */
+
+const withWriteConflictRetry = async <T>(fn: () => Promise<T>, retries = 4) => {
+  let lastErr: any
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn()
+    } catch (err: any) {
+      lastErr = err
+
+      // Mongo write conflict (common codes/names)
+      const code = err?.code
+      const name = err?.codeName
+      const msg = String(err?.message || '')
+
+      const isWriteConflict =
+        code === 112 ||
+        name === 'WriteConflict' ||
+        msg.toLowerCase().includes('write conflict') ||
+        msg.toLowerCase().includes('conflict')
+
+      if (!isWriteConflict || attempt === retries) throw err
+
+      // Small backoff + jitter
+      const base = 150 * (attempt + 1)
+      const jitter = Math.floor(Math.random() * 100)
+      await sleep(base + jitter)
+    }
+  }
+
+  throw lastErr
+}
 
 const createTransporter = () => {
   return nodemailer.createTransport({
@@ -180,7 +213,7 @@ export const startPaymentPolling = (payload: any) => {
         console.error('Error in payment polling:', error)
       }
     },
-    isProduction ? 30 * 60 * 1000 : 5 * 1000,
+    isProduction ? 30 * 60 * 1000 : 15 * 1000,
   )
 
   // Installment activation scheduler:
@@ -324,12 +357,15 @@ const checkDueInstallments = async (payload: any) => {
       }
 
       if (changed) {
-        await payload.update({
-          collection: 'reservations',
-          id: reservation.id,
-          data: { payments: updatedPayments },
-          overrideAccess: true,
-        })
+        await withWriteConflictRetry(() =>
+          payload.update({
+            collection: 'reservations',
+            id: reservation.id,
+            data: { payments: updatedPayments },
+            overrideAccess: true,
+            disableTransaction: true,
+          }),
+        )
       }
     }
 
@@ -344,6 +380,8 @@ const checkDueInstallments = async (payload: any) => {
         if (!payment) continue
 
         // Only remind for activated (link created) installments
+        if ((payment.kind as PaymentKind) !== 'installment') continue
+
         const stage = payment.installmentStage as InstallmentStage | undefined
         if (payment.status !== 'pending') continue
         if (stage !== 'installed_ready_to_be_paid') continue
@@ -457,7 +495,7 @@ const checkPaymentStatuses = async (payload: any) => {
     console.log(`Found ${reservations.docs.length} reservations awaiting payment`)
 
     // Throttle checks per paymentLinkId to avoid MamoPay 429
-    const CHECK_THROTTLE_MS = isProduction ? 60 * 1000 : 5 * 1000
+    const CHECK_THROTTLE_MS = isProduction ? 60 * 1000 : 20 * 1000
 
     for (const reservation of reservations.docs as any[]) {
       try {
@@ -467,9 +505,9 @@ const checkPaymentStatuses = async (payload: any) => {
         const payments = Array.isArray(reservation.payments) ? reservation.payments : []
         const isInstallments = reservation.paymentMethod === 'installments'
 
-        // Fetch boat only when we actually need to email "confirmed"
         const boatId =
           typeof reservation.boat === 'object' ? reservation.boat?.id : reservation.boat
+
         if (!boatId || boatId === '') {
           console.warn('[Polling][SKIP] reservation has no boat id:', reservationId)
           continue
@@ -477,16 +515,10 @@ const checkPaymentStatuses = async (payload: any) => {
 
         const user = buildUserFromReservation(reservation)
 
-        // Helper: decide which linkId to poll
         const topLevelLinkId =
           typeof reservation.paymentLinkId === 'string' ? reservation.paymentLinkId.trim() : ''
 
-        const looksLikeRealMamoLink = (id: string) => id.startsWith('MB-LINK-')
-        const looksLikeMock = (id: string) => id.startsWith('mock-link-')
-
         // Build list of “payment entries” to poll
-        // - Installments: poll only activated installments (your existing rule)
-        // - Full payment: poll using TOP-LEVEL paymentLinkId if it looks real
         const entriesToPoll: Array<{ index: number; payment: any; linkId: string }> = []
 
         if (isInstallments) {
@@ -506,15 +538,14 @@ const checkPaymentStatuses = async (payload: any) => {
             entriesToPoll.push({ index: i, payment: p, linkId: String(p.paymentLinkId) })
           }
         } else {
-          // FULL PAYMENT path:
-          // Prefer top-level MB-LINK-* (this fixes your “polling mock-link instead of MB-LINK” problem)
+          // FULL PAYMENT path: prefer REAL top-level MB-LINK-*
           let linkIdToUse = ''
           const first = payments[0]
 
-          if (topLevelLinkId && looksLikeRealMamoLink(topLevelLinkId)) {
+          if (topLevelLinkId && isRealMamoLinkId(topLevelLinkId)) {
             linkIdToUse = topLevelLinkId
           } else if (first?.paymentLinkId) {
-            linkIdToUse = String(first.paymentLinkId)
+            linkIdToUse = String(first.paymentLinkId).trim()
           } else if (topLevelLinkId) {
             linkIdToUse = topLevelLinkId
           }
@@ -528,11 +559,7 @@ const checkPaymentStatuses = async (payload: any) => {
           }
 
           // If payment record has a mock id but top-level is real, always poll the real one
-          if (
-            topLevelLinkId &&
-            looksLikeRealMamoLink(topLevelLinkId) &&
-            looksLikeMock(linkIdToUse)
-          ) {
+          if (topLevelLinkId && isRealMamoLinkId(topLevelLinkId) && isMockLinkId(linkIdToUse)) {
             linkIdToUse = topLevelLinkId
           }
 
@@ -565,8 +592,6 @@ const checkPaymentStatuses = async (payload: any) => {
 
           console.log(`[Polling] CAPTURED ✅ linkId=${linkId} reservation=${reservationId}`)
 
-          processedReservations.add(reservationKey)
-
           // Fetch boat only now (email needs it)
           const boat = (await payload.findByID({
             collection: 'boats',
@@ -580,7 +605,6 @@ const checkPaymentStatuses = async (payload: any) => {
             continue
           }
 
-          // Build updated payments array safely
           const updatedPayments = [...payments]
 
           // Ensure there is at least one payment record for FULL payment
@@ -598,31 +622,45 @@ const checkPaymentStatuses = async (payload: any) => {
             })
           }
 
-          // Mark the relevant payment as completed (for full payment: index 0)
+          // Mark relevant payment as completed
           const targetIndex = isInstallments ? i : 0
           const existing = updatedPayments[targetIndex] || {}
           updatedPayments[targetIndex] = {
             ...existing,
             status: 'completed',
             paidAt: new Date().toISOString(),
-            // Keep your installment semantics
             installmentStage: isInstallments ? 'paid' : existing.installmentStage,
-            // Ensure we store the REAL link id we just validated
-            paymentLinkId: linkId,
+            paymentLinkId: linkId, // store REAL id we validated
           }
 
           const allPaid = updatedPayments.every((pp: any) => pp?.status === 'completed')
 
-          // Update reservation status if fully paid
-          await payload.update({
-            collection: 'reservations',
-            id: reservationId,
-            data: {
-              payments: updatedPayments,
-              status: allPaid ? 'confirmed' : 'awaiting payment',
-            },
-            overrideAccess: true,
-          })
+          // ✅ Retry-safe update (prevents WriteConflict from “breaking” a reservation forever)
+          try {
+            await withWriteConflictRetry(() =>
+              payload.update({
+                collection: 'reservations',
+                id: reservationId,
+                data: {
+                  payments: updatedPayments,
+                  status: allPaid ? 'confirmed' : 'awaiting payment',
+                  // ✅ Keep top-level accurate for FULL payments
+                  ...(isInstallments ? {} : { paymentLinkId: linkId }),
+                },
+                overrideAccess: true,
+                disableTransaction: true, // per-call safety
+              }),
+            )
+
+            // ✅ Only mark processed AFTER update succeeds
+            processedReservations.add(reservationKey)
+          } catch (updateErr) {
+            console.error(
+              '[Polling] Update failed after capture (will retry next tick):',
+              updateErr,
+            )
+            continue
+          }
 
           // Only send "confirmed" emails when fully paid
           if (allPaid) {
@@ -651,7 +689,7 @@ const checkPaymentStatuses = async (payload: any) => {
             }
           }
 
-          // IMPORTANT: for full payment, once captured+confirmed, we can stop checking further entries
+          // For full payment, stop after first capture+update
           if (!isInstallments) break
         }
       } catch (error) {
@@ -668,11 +706,33 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 const checkMamoPaymentStatus = async (paymentLinkId: string): Promise<boolean> => {
   if (!paymentLinkId) return false
 
-  // If we recently got an auth failure, don't hammer the API
+  const trimmedId = String(paymentLinkId).trim()
+
+  // ✅ Never call Mamo for mock links (prevents pointless 429 spam)
+  if (isMockLinkId(trimmedId)) {
+    if (isDevelopment) {
+      console.log(`[MamoPay] Skip status check for mock linkId=${trimmedId}`)
+    }
+    return false
+  }
+
+  // ✅ Respect a global 429 cooldown
+  if (mamoRateLimitedUntil && Date.now() < mamoRateLimitedUntil) {
+    if (isDevelopment) {
+      console.warn(
+        `[MamoPay] Rate-limited: skipping checks for ${Math.ceil(
+          (mamoRateLimitedUntil - Date.now()) / 1000,
+        )}s`,
+      )
+    }
+    return false
+  }
+
+  // ✅ Respect a global auth cooldown
   if (mamoAuthBlockedUntil && Date.now() < mamoAuthBlockedUntil) {
     if (isDevelopment) {
       console.warn(
-        `MamoPay check skipped (auth blocked) for ${paymentLinkId}. Unblocks in ${Math.ceil(
+        `[MamoPay] Auth-blocked: skipping checks for ${Math.ceil(
           (mamoAuthBlockedUntil - Date.now()) / 1000,
         )}s`,
       )
@@ -686,9 +746,8 @@ const checkMamoPaymentStatus = async (paymentLinkId: string): Promise<boolean> =
   }
 
   try {
-    // Avoid scanning 100+ pages (429 risk). payment_link_id SHOULD filter results.
-    const encoded = encodeURIComponent(paymentLinkId)
-    const maxPages = 3
+    const encoded = encodeURIComponent(trimmedId)
+    const maxPages = 2
     let page = 1
 
     while (page <= maxPages) {
@@ -704,11 +763,29 @@ const checkMamoPaymentStatus = async (paymentLinkId: string): Promise<boolean> =
         },
       )
 
+      // ✅ Handle rate limiting
+      if (response.status === 429) {
+        const retryAfterHeader = response.headers.get('retry-after')
+        const retryAfterSec = retryAfterHeader ? Number(retryAfterHeader) : NaN
+
+        const backoffMs = Number.isFinite(retryAfterSec)
+          ? Math.max(5, retryAfterSec) * 1000
+          : isProduction
+            ? 60_000
+            : 20_000
+
+        mamoRateLimitedUntil = Date.now() + backoffMs
+
+        const body = await response.text().catch(() => '')
+        console.error(`MamoPay API 429 Too Many Requests. Backing off ${backoffMs}ms.`, body)
+        return false
+      }
+
+      // ✅ Handle auth problems (keep your existing behaviour)
       if (response.status === 401 || response.status === 403) {
         const body = await response.text().catch(() => '')
         console.error(`MamoPay API auth error: ${response.status} ${response.statusText}`, body)
 
-        // Back off to avoid log / retry spam
         mamoAuthBlockedUntil = Date.now() + (isProduction ? 30 * 60 * 1000 : 60 * 1000)
         return false
       }
@@ -725,11 +802,11 @@ const checkMamoPaymentStatus = async (paymentLinkId: string): Promise<boolean> =
         const validPayment = data.data.find(
           (charge: any) =>
             String(charge?.status || '').toLowerCase() === 'captured' &&
-            String(charge?.payment_link_id || '') === String(paymentLinkId),
+            String(charge?.payment_link_id || '') === trimmedId,
         )
 
         if (validPayment) {
-          console.log(`Found captured payment for payment link ${paymentLinkId}:`, {
+          console.log(`Found captured payment for payment link ${trimmedId}:`, {
             id: validPayment.id,
             status: validPayment.status,
             created_date: validPayment.created_date,
@@ -739,7 +816,6 @@ const checkMamoPaymentStatus = async (paymentLinkId: string): Promise<boolean> =
         }
       }
 
-      // If Mamo still paginates even with filter, stop early to prevent 429s.
       const nextPage = data?.pagination_meta?.next_page
       if (!nextPage) break
 
@@ -873,19 +949,20 @@ const createMamoPaymentLink = async (
       customData.total_installments = installmentInfo.totalInstallments
     }
 
+    const bookingId = reservation.transactionId || reservation.id
+
     // Prepare the request body
     const requestBody = {
       title: `Reservation for ${boat.name}`.substring(0, 75),
       description:
-        `Booking from ${formatDateSafe(reservation.startTime)} to ${formatDateSafe(reservation.endTime)}`.substring(
+        `Booking ${formatDateSafe(reservation.startTime)} to ${formatDateSafe(reservation.endTime)}, ${bookingId}`.substring(
           0,
           75,
         ),
       amount: amount,
       amount_currency: 'AED',
-      return_url: `${APP_URLS.api}/payment-success`,
-      failure_return_url: `${APP_URLS.api}/payment-failure`,
-      webhook_url: `${APP_URLS.api}/api/mamo-webhook`,
+      return_url: `${APP_URLS.frontend}/payment-success`,
+      failure_return_url: `${APP_URLS.frontend}/payment-failure`,
       active: true,
       processing_fee_percentage: 4,
       link_type: 'standalone',
@@ -893,7 +970,7 @@ const createMamoPaymentLink = async (
       enable_message: false,
       enable_tips: false,
       save_card: 'off',
-      enable_customer_details: false,
+      enable_customer_details: true,
       enable_quantity: false,
       enable_qr_code: false,
       send_customer_receipt: false,
@@ -1329,27 +1406,27 @@ const getCreativeEmailTemplate = (
     case 'cancelled': {
       const start = new Date(reservation.startTime)
       const end = new Date(reservation.endTime)
-    
+
       const dateStr = start.toLocaleDateString('en-GB')
       const timeStr = start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
-    
+
       const diffMs = end.getTime() - start.getTime()
       const durationHoursRaw = diffMs > 0 ? diffMs / (1000 * 60 * 60) : 0
       const durationHours =
         Number.isFinite(durationHoursRaw) && durationHoursRaw > 0
           ? (Math.round(durationHoursRaw * 10) / 10).toString().replace(/\.0$/, '')
           : '0'
-    
+
       const totalPriceNumber =
         typeof reservation.totalPrice === 'number'
           ? reservation.totalPrice
           : Number(reservation.totalPrice || 0)
-    
+
       const totalPriceStr =
         Number.isFinite(totalPriceNumber) && totalPriceNumber > 0
           ? `AED ${Math.round(totalPriceNumber).toLocaleString()}`
           : 'AED 0'
-    
+
       const departureLocation =
         (reservation as any)?.departureLocation ||
         (reservation as any)?.location ||
@@ -1359,9 +1436,9 @@ const getCreativeEmailTemplate = (
         (boat as any)?.location?.city ||
         (boat as any)?.harbour?.name ||
         'Dubai'
-    
+
       const bookingId = reservation.transactionId || reservation.id
-    
+
       return `
     <!DOCTYPE html>
     <html>
@@ -1467,7 +1544,7 @@ const getCreativeEmailTemplate = (
     </html>
     `
     }
-    
+
     case 'awaiting payment': {
       const start = new Date(reservation.startTime)
       const end = new Date(reservation.endTime)
@@ -2049,9 +2126,10 @@ export const Reservations: CollectionConfig = {
               if (data.boat) {
                 const boatId = typeof data.boat === 'object' ? data.boat.id : data.boat
                 const boat = await req.payload.findByID({
+                  req,
                   collection: 'boats',
                   id: boatId,
-                  depth: 0,
+                  depth: 2,
                 })
                 boatPrice = boat.price
                 boatPriceDay = boat.priceDay
@@ -2203,6 +2281,7 @@ export const Reservations: CollectionConfig = {
 
           if (shouldIncrement) {
             const couponDoc = await req.payload.findByID({
+              req,
               collection: 'coupons',
               id: couponId,
               depth: 0,
@@ -2210,6 +2289,7 @@ export const Reservations: CollectionConfig = {
             })
 
             await req.payload.update({
+              req,
               collection: 'coupons',
               id: couponId,
               data: { usageCount: Number(couponDoc.usageCount || 0) + 1 },
@@ -2329,16 +2409,18 @@ export const Reservations: CollectionConfig = {
                     },
                   ] satisfies NonNullable<Reservation['payments']>
 
-                  await req.payload.update({
-                    collection: 'reservations',
-                    id: doc.id,
-                    data: {
-                      paymentLink: paymentLink.url,
-                      paymentLinkId: paymentLink.id,
-                      payments,
-                    },
-                    overrideAccess: true,
-                  })
+                  await withWriteConflictRetry(() =>
+                    req.payload.update({
+                      collection: 'reservations',
+                      id: doc.id,
+                      data: {
+                        paymentLink: paymentLink.url,
+                        paymentLinkId: paymentLink.id,
+                        payments,
+                      },
+                      overrideAccess: true,
+                    }),
+                  )
 
                   startPaymentPolling(payload)
 

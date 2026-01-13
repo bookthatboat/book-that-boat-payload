@@ -1,6 +1,9 @@
 export const isProduction = process.env.NODE_ENV === 'production'
 export const isDevelopment = !isProduction
-
+const normalizeBaseUrl = (url: string) =>
+  String(url || '')
+    .trim()
+    .replace(/\/+$/, '')
 // MamoPay configuration
 export const MAMOPAY_CONFIG = {
   baseUrl:
@@ -18,10 +21,14 @@ export const EMAIL_CONFIG = {
 
 // Application URLs
 export const APP_URLS = {
-  frontend: process.env.NEXT_PUBLIC_API_URL || 'https://bookthatboat.com',
-  api: process.env.NEXT_PUBLIC_API_URL || 'https://localhost:3000',
+  frontend: normalizeBaseUrl(
+    process.env.NEXT_PUBLIC_FRONTEND_URL || 'https://book-that-boat-frontend.vercel.app',
+  ),
+  api: normalizeBaseUrl(
+    process.env.PAYLOAD_PUBLIC_SERVER_URL ||
+      'https://book-that-boat-payload-production.up.railway.app',
+  ),
 }
-
 // Default values
 export const DEFAULTS = {
   reservationUser: process.env.DEFAULT_RESERVATION_USER_EMAIL || 'web@bookthatboat.com',

@@ -2,6 +2,9 @@ import express from 'express'
 import cors from 'cors'
 import payload from 'payload'
 import dotenv from 'dotenv'
+import {
+  APP_URLS,
+} from '@/config'
 
 dotenv.config()
 
@@ -26,7 +29,7 @@ const start = async () => {
   // Then apply CORS
   app.use(
     cors({
-      origin: process.env.CORS_ORIGIN,
+      origin: APP_URLS.frontend,
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'DELETE'],
       allowedHeaders: ['Content-Type', 'Authorization'],
