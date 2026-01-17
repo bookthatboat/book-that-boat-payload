@@ -2,7 +2,7 @@ import type { CollectionConfig } from 'payload'
 
 export const Subscribers: CollectionConfig = {
   slug: 'subscribers',
-  access: { read: () => true },
+  access: { read: ({ req }) => Boolean(req.user), create: () => true },
 
   admin: {
     useAsTitle: 'email',
