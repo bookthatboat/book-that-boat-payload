@@ -148,7 +148,7 @@ export const Boats: CollectionConfig = {
       index: true,
       required: true,
       admin: { position: 'sidebar' },
-      hooks: {
+      /* hooks: {
         beforeValidate: [
           ({ data }) => {
             if (!data) return data
@@ -158,7 +158,7 @@ export const Boats: CollectionConfig = {
             return data
           },
         ],
-      },
+      }, */
     },
     // Basic Information
     {
