@@ -16,6 +16,7 @@
     "lint": "cross-env NODE_OPTIONS=--no-deprecation next lint"
   },
   "dependencies": {
+    "@azure/msal-node": "^5.0.3",
     "@payloadcms/db-mongodb": "^3.36.1",
     "@payloadcms/next": "^3.36.1",
     "@payloadcms/payload-cloud": "^3.36.1",

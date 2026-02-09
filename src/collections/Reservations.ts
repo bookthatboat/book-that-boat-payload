@@ -4,6 +4,7 @@ import type { Boat } from '@/types/boats'
 import type { User } from '@/types/users'
 // import sgMail from '@sendgrid/mail'
 import nodemailer from 'nodemailer'
+import { sendEmailViaGraph } from '@/lib/graphMailer'
 import { getCountries, getCountryCallingCode } from 'libphonenumber-js'
 import {
   isProduction,
@@ -55,17 +56,19 @@ const withWriteConflictRetry = async <T>(fn: () => Promise<T>, retries = 4) => {
   throw lastErr
 }
 
-const createTransporter = () => {
+/* const createTransporter = () => {
   return nodemailer.createTransport({
-    host: process.env.SMTP_HOST || 'sandbox.smtp.mailtrap.io',
-    port: parseInt(process.env.SMTP_PORT || '2525'),
+    host: process.env.SMTP_HOST || 'smtp.office365.com',
+    port: parseInt(process.env.SMTP_PORT || '587'),
     secure: false,
+    requireTLS: true,
     auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASSWORD,
+      type: "OAuth2",
+      user: "web@bookthatboat.com",
+      accessToken: "ya29.Xx_XX0xxxxx-xX0X0XxXXxXxXXXxX0x",
     },
   })
-}
+} */
 
 type InstallmentStage = 'paid' | 'ready_to_be_installed' | 'installed_ready_to_be_paid'
 type PaymentKind = 'full' | 'downpayment' | 'installment'
@@ -869,28 +872,15 @@ const buildUserFromReservation = (reservation: any): User => {
 
 const sendEmail = async (to: string, subject: string, html: string) => {
   try {
-    // Check if SMTP configuration is available
     if (!EMAIL_CONFIG.enabled) {
-      console.warn('Email not configured. Would have sent to:', to)
-      console.warn('Subject:', subject)
+      console.warn('Email disabled. Would have sent to:', to, 'subject:', subject)
       return
     }
 
-    const transporter = createTransporter()
-
-    const mailOptions = {
-      from: EMAIL_CONFIG.from,
-      to,
-      subject,
-      html,
-    }
-
-    const info = await transporter.sendMail(mailOptions)
-    console.log('Email sent successfully to Mailtrap:', info.messageId)
-    return info
+    await sendEmailViaGraph({ to, subject, html })
+    console.log('Email sent successfully via Microsoft Graph')
   } catch (error) {
-    console.error('Error sending email to Mailtrap:', error)
-    // Don't throw the error to avoid breaking the reservation process
+    console.error('Error sending email via Microsoft Graph:', error)
   }
 }
 
