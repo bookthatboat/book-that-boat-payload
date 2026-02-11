@@ -1,5 +1,3 @@
-Do you remember you generated this 3) Validation: block status change pending → awaiting payment unless mandatory fields filled on above so i am pasting this after change as you did please check of my code that and tell me i did correct or not.
-
 import type { CollectionConfig } from 'payload'
 import type { ReservationStatus } from '@/types/reservations'
 import type { Boat } from '@/types/boats'
