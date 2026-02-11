@@ -872,10 +872,10 @@ const buildUserFromReservation = (reservation: any): User => {
 
 const sendEmail = async (to: string, subject: string, html: string) => {
   try {
-    if (!EMAIL_CONFIG.enabled) {
+    /*if (!EMAIL_CONFIG.enabled) {
       console.warn('Email disabled. Would have sent to:', to, 'subject:', subject)
       return
-    }
+    }*/
 
     await sendEmailViaGraph({ to, subject, html })
     console.log('Email sent successfully via Microsoft Graph')
