@@ -16,7 +16,7 @@ export const MAMOPAY_CONFIG = {
 export const EMAIL_CONFIG = {
   enabled: !!(process.env.GRAPH_SENDER && process.env.SMTP_PASSWORD),
   from: process.env.SMTP_FROM_EMAIL || process.env.GRAPH_SENDER || 'noreply@bookthatboat.com',
-  adminEmail: 'web@bookthatboat.com',
+  adminEmail: 'hello@bookthatboat.com',
 }
 
 // Application URLs
