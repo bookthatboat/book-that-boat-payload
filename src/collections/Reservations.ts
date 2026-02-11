@@ -1311,8 +1311,8 @@ const getCreativeEmailTemplate = (
             <div style="margin-top:14px;">
               <div style="font-size:13px;font-weight:900;color:#111827;margin:0 0 6px 0;">Contact Person</div>
               <div style="font-size:13px;line-height:1.7;color:#374151;">
-                ${reservation.guestName || user.name || 'Guest'}<br/>
-                ${reservation.guestPhone || ''}
+                ${contactName}<br/>
+                ${contactNumber}
               </div>
             </div>
     
@@ -2095,6 +2095,39 @@ export const Reservations: CollectionConfig = {
 
   hooks: {
     beforeChange: [
+        async ({ data, operation, originalDoc }) => {
+        // Only applies on update where status is changing
+        const prevStatus = (originalDoc as any)?.status
+        const nextStatus = (data as any)?.status
+      
+        const isPendingToAwaiting =
+          operation === 'update' && prevStatus === 'pending' && nextStatus === 'awaiting payment'
+      
+        if (!isPendingToAwaiting) return data
+      
+        const meetingPointName = String((data as any)?.meetingPointName || (originalDoc as any)?.meetingPointName || '').trim()
+        const meetingPointPin = String((data as any)?.meetingPointPin || (originalDoc as any)?.meetingPointPin || '').trim()
+        const contactPersonName = String((data as any)?.contactPersonName || (originalDoc as any)?.contactPersonName || '').trim()
+        const contactPersonNumber = String((data as any)?.contactPersonNumber || (originalDoc as any)?.contactPersonNumber || '').trim()
+        const parkingLocationName = String((data as any)?.parkingLocationName || (originalDoc as any)?.parkingLocationName || '').trim()
+        const parkingLocationPin = String((data as any)?.parkingLocationPin || (originalDoc as any)?.parkingLocationPin || '').trim()
+      
+        const missing: string[] = []
+        if (!meetingPointName) missing.push('Meeting Point - Name')
+        if (!meetingPointPin) missing.push('Meeting Point - Google Maps Pin')
+        if (!contactPersonName) missing.push('Contact Person - Name')
+        if (!contactPersonNumber) missing.push('Contact Person - Number')
+        if (!parkingLocationName) missing.push('Car Parking Location - Name')
+        if (!parkingLocationPin) missing.push('Car Parking Location - Google Maps Pin')
+      
+        if (missing.length) {
+          throw new Error(
+            `Cannot change status from "pending" to "awaiting payment" until these fields are completed: ${missing.join(', ')}`,
+          )
+        }
+      
+        return data
+      },
       async ({ data, req, operation, originalDoc }) => {
         try {
           // Set transaction ID to the document ID for new reservations
@@ -2495,6 +2528,66 @@ export const Reservations: CollectionConfig = {
       admin: {
         readOnly: true,
         description: 'Auto-copied from the selected boat location (used in client emails).',
+      },
+    },
+    {
+      name: 'meetingPointName',
+      type: 'text',
+      label: 'Meeting Point - Name',
+      required: false,
+      admin: {
+        position: 'sidebar',
+        description: 'e.g. Dubai Marina',
+      },
+    },
+    {
+      name: 'meetingPointPin',
+      type: 'text',
+      label: 'Meeting Point - Google Maps Pin',
+      required: false,
+      admin: {
+        position: 'sidebar',
+        description: 'e.g. https://share.google/xxxx',
+      },
+    },
+    {
+      name: 'contactPersonName',
+      type: 'text',
+      label: 'Contact Person - Name',
+      required: false,
+      admin: {
+        position: 'sidebar',
+        description: 'e.g. John',
+      },
+    },
+    {
+      name: 'contactPersonNumber',
+      type: 'text',
+      label: 'Contact Person - Number',
+      required: false,
+      admin: {
+        position: 'sidebar',
+        description: 'e.g. +97143408933',
+      },
+    },
+    {
+      name: 'parkingLocationName',
+      type: 'text',
+      label: 'Car Parking Location - Name',
+      required: false,
+      admin: {
+        position: 'sidebar',
+        description: 'e.g. Dubai Marina',
+      },
+    },
+    {
+      name: 'parkingLocationPin',
+      type: 'text',
+      label: 'Car Parking Location - Google Maps Pin',
+      required: false,
+      admin: {
+        position: 'sidebar',
+        description: 'e.g. https://share.google/xxxx',
       },
     },
     {
