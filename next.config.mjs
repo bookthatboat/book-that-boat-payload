@@ -36,7 +36,7 @@ export default withPayload({
       }, */
       {
         protocol: 'https',
-        hostname: 'book-that-boat-frontend.vercel.app',
+        hostname: 'bookthatboat.com',
         pathname: '/**',
       },
     ],
