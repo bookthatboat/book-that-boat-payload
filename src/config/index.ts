@@ -22,7 +22,7 @@ export const EMAIL_CONFIG = {
 // Application URLs
 export const APP_URLS = {
   frontend: normalizeBaseUrl(
-    process.env.NEXT_PUBLIC_FRONTEND_URL || 'https://book-that-boat-frontend.vercel.app',
+    process.env.NEXT_PUBLIC_FRONTEND_URL || 'https://bookthatboat.com',
   ),
   api: normalizeBaseUrl(
     process.env.PAYLOAD_PUBLIC_SERVER_URL ||
