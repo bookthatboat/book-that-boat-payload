@@ -1,3 +1,5 @@
+Do you remember you generated this 3) Validation: block status change pending → awaiting payment unless mandatory fields filled on above so i am pasting this after change as you did please check of my code that and tell me i did correct or not.
+
 import type { CollectionConfig } from 'payload'
 import type { ReservationStatus } from '@/types/reservations'
 import type { Boat } from '@/types/boats'
@@ -872,10 +874,10 @@ const buildUserFromReservation = (reservation: any): User => {
 
 const sendEmail = async (to: string, subject: string, html: string) => {
   try {
-    /*if (!EMAIL_CONFIG.enabled) {
+    if (!EMAIL_CONFIG.enabled) {
       console.warn('Email disabled. Would have sent to:', to, 'subject:', subject)
       return
-    }*/
+    }
 
     await sendEmailViaGraph({ to, subject, html })
     console.log('Email sent successfully via Microsoft Graph')
@@ -1212,19 +1214,39 @@ const getCreativeEmailTemplate = (
 
       // Optional (safe) meeting/parking links if your boat has them; otherwise hidden
       const meetingPointName =
-        (boat as any)?.meetingPoint?.name || (boat as any)?.meetingPointName || departureLocation
+        (reservation as any)?.meetingPointName ||
+        (boat as any)?.meetingPoint?.name ||
+        (boat as any)?.meetingPointName ||
+        departureLocation
 
       const meetingPointLink =
+        (reservation as any)?.meetingPointPin ||
         (boat as any)?.meetingPoint?.url ||
         (boat as any)?.meetingPointUrl ||
         (boat as any)?.meetingPointLink ||
         ''
 
+      const contactName =
+        (reservation as any)?.contactPersonName ||
+        (reservation as any)?.guestName ||
+        user.name ||
+        'Guest'
+
+      const contactNumber =
+        (reservation as any)?.contactPersonNumber || (reservation as any)?.guestPhone || ''
+
       const parkingName =
-        (boat as any)?.parking?.name || (boat as any)?.parkingLocation || 'Dubai Marina'
+        (reservation as any)?.parkingLocationName ||
+        (boat as any)?.parking?.name ||
+        (boat as any)?.parkingLocation ||
+        'Dubai Marina'
 
       const parkingLink =
-        (boat as any)?.parking?.url || (boat as any)?.parkingUrl || (boat as any)?.parkingLink || ''
+        (reservation as any)?.parkingLocationPin ||
+        (boat as any)?.parking?.url ||
+        (boat as any)?.parkingUrl ||
+        (boat as any)?.parkingLink ||
+        ''
 
       return `
     <!DOCTYPE html>
@@ -2095,7 +2117,7 @@ export const Reservations: CollectionConfig = {
 
   hooks: {
     beforeChange: [
-        async ({ data, operation, originalDoc }) => {
+      async ({ data, operation, originalDoc }) => {
         // Only applies on update where status is changing
         const prevStatus = (originalDoc as any)?.status
         const nextStatus = (data as any)?.status
@@ -2128,6 +2150,7 @@ export const Reservations: CollectionConfig = {
       
         return data
       },
+      
       async ({ data, req, operation, originalDoc }) => {
         try {
           // Set transaction ID to the document ID for new reservations
