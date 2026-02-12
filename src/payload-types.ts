@@ -155,6 +155,30 @@ export interface Reservation {
    * Auto-copied from the selected boat location (used in client emails).
    */
   departureLocation?: string | null;
+  /**
+   * e.g. Dubai Marina
+   */
+  meetingPointName?: string | null;
+  /**
+   * e.g. https://share.google/xxxx
+   */
+  meetingPointPin?: string | null;
+  /**
+   * e.g. John
+   */
+  contactPersonName?: string | null;
+  /**
+   * e.g. +97143408933
+   */
+  contactPersonNumber?: string | null;
+  /**
+   * e.g. Dubai Marina
+   */
+  parkingLocationName?: string | null;
+  /**
+   * e.g. https://share.google/xxxx
+   */
+  parkingLocationPin?: string | null;
   paymentMethod: 'full' | 'installments';
   /**
    * Number of installments AFTER the down payment (e.g. 1, 2, 3, 4)
@@ -2457,6 +2481,12 @@ export interface PayloadMigration {
 export interface ReservationsSelect<T extends boolean = true> {
   boat?: T;
   departureLocation?: T;
+  meetingPointName?: T;
+  meetingPointPin?: T;
+  contactPersonName?: T;
+  contactPersonNumber?: T;
+  parkingLocationName?: T;
+  parkingLocationPin?: T;
   paymentMethod?: T;
   numberOfInstallments?: T;
   downPaymentAmount?: T;
