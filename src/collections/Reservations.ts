@@ -18,6 +18,58 @@ import {
 let mamoAuthBlockedUntil = 0
 let mamoRateLimitedUntil = 0
 
+const asDate = (v: Date | string): Date => {
+  if (v instanceof Date) return v
+
+  // If it's ISO, this works. If it's not, try to normalize or fallback.
+  const d = new Date(v)
+  if (!Number.isNaN(d.getTime())) return d
+
+  // Last-resort: try replacing space with 'T' (common "YYYY-MM-DD HH:mm:ss")
+  const d2 = new Date(String(v).replace(' ', 'T'))
+  return d2
+}
+
+const formatDubaiDate = (v: Date | string) => {
+  const d = asDate(v)
+  if (Number.isNaN(d.getTime())) return 'Unknown date'
+
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Dubai',
+    weekday: 'short',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(d)
+}
+
+const formatDubaiTime = (v: Date | string) => {
+  const d = asDate(v)
+  if (Number.isNaN(d.getTime())) return 'Unknown time'
+
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Dubai',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  }).format(d)
+}
+
+const formatDubaiDateTime = (v: Date | string) => {
+  const d = asDate(v)
+  if (Number.isNaN(d.getTime())) return 'Unknown'
+
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Dubai',
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  }).format(d)
+}
+
 /* if (!process.env.SENDGRID_API_KEY) {
   throw new Error('SENDGRID_API_KEY missing in environment variables')
 }
@@ -1036,11 +1088,17 @@ const getCreativeEmailTemplate = (
 
   switch (status) {
     case 'pending': {
-      const start = new Date(reservation.startTime)
+      /* const start = new Date(reservation.startTime)
       const end = new Date(reservation.endTime)
 
       const dateStr = start.toLocaleDateString('en-GB')
-      const timeStr = start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+      const timeStr = start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) */
+
+      const start = asDate(reservation.startTime)
+      const end = asDate(reservation.endTime)
+
+      const dateStr = formatDubaiDate(start)
+      const timeStr = formatDubaiTime(start)
 
       const diffMs = end.getTime() - start.getTime()
       const durationHoursRaw = diffMs > 0 ? diffMs / (1000 * 60 * 60) : 0
@@ -1175,11 +1233,17 @@ const getCreativeEmailTemplate = (
     `
     }
     case 'confirmed': {
-      const start = new Date(reservation.startTime)
+      /* const start = new Date(reservation.startTime)
       const end = new Date(reservation.endTime)
 
       const dateStr = start.toLocaleDateString('en-GB')
-      const timeStr = start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+      const timeStr = start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) */
+
+      const start = asDate(reservation.startTime)
+      const end = asDate(reservation.endTime)
+
+      const dateStr = formatDubaiDate(start)
+      const timeStr = formatDubaiTime(start)
 
       const diffMs = end.getTime() - start.getTime()
       const durationHoursRaw = diffMs > 0 ? diffMs / (1000 * 60 * 60) : 0
@@ -1414,11 +1478,17 @@ const getCreativeEmailTemplate = (
     }
 
     case 'cancelled': {
-      const start = new Date(reservation.startTime)
+      /* const start = new Date(reservation.startTime)
       const end = new Date(reservation.endTime)
 
       const dateStr = start.toLocaleDateString('en-GB')
-      const timeStr = start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+      const timeStr = start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) */
+
+      const start = asDate(reservation.startTime)
+      const end = asDate(reservation.endTime)
+
+      const dateStr = formatDubaiDate(start)
+      const timeStr = formatDubaiTime(start)
 
       const diffMs = end.getTime() - start.getTime()
       const durationHoursRaw = diffMs > 0 ? diffMs / (1000 * 60 * 60) : 0
@@ -1556,11 +1626,17 @@ const getCreativeEmailTemplate = (
     }
 
     case 'awaiting payment': {
-      const start = new Date(reservation.startTime)
+      /* const start = new Date(reservation.startTime)
       const end = new Date(reservation.endTime)
 
       const dateStr = start.toLocaleDateString('en-GB')
-      const timeStr = start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+      const timeStr = start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) */
+
+      const start = asDate(reservation.startTime)
+      const end = asDate(reservation.endTime)
+
+      const dateStr = formatDubaiDate(start)
+      const timeStr = formatDubaiTime(start)
 
       const diffMs = end.getTime() - start.getTime()
       const durationHoursRaw = diffMs > 0 ? diffMs / (1000 * 60 * 60) : 0
@@ -2119,19 +2195,31 @@ export const Reservations: CollectionConfig = {
         // Only applies on update where status is changing
         const prevStatus = (originalDoc as any)?.status
         const nextStatus = (data as any)?.status
-      
+
         const isPendingToAwaiting =
           operation === 'update' && prevStatus === 'pending' && nextStatus === 'awaiting payment'
-      
+
         if (!isPendingToAwaiting) return data
-      
-        const meetingPointName = String((data as any)?.meetingPointName || (originalDoc as any)?.meetingPointName || '').trim()
-        const meetingPointPin = String((data as any)?.meetingPointPin || (originalDoc as any)?.meetingPointPin || '').trim()
-        const contactPersonName = String((data as any)?.contactPersonName || (originalDoc as any)?.contactPersonName || '').trim()
-        const contactPersonNumber = String((data as any)?.contactPersonNumber || (originalDoc as any)?.contactPersonNumber || '').trim()
-        const parkingLocationName = String((data as any)?.parkingLocationName || (originalDoc as any)?.parkingLocationName || '').trim()
-        const parkingLocationPin = String((data as any)?.parkingLocationPin || (originalDoc as any)?.parkingLocationPin || '').trim()
-      
+
+        const meetingPointName = String(
+          (data as any)?.meetingPointName || (originalDoc as any)?.meetingPointName || '',
+        ).trim()
+        const meetingPointPin = String(
+          (data as any)?.meetingPointPin || (originalDoc as any)?.meetingPointPin || '',
+        ).trim()
+        const contactPersonName = String(
+          (data as any)?.contactPersonName || (originalDoc as any)?.contactPersonName || '',
+        ).trim()
+        const contactPersonNumber = String(
+          (data as any)?.contactPersonNumber || (originalDoc as any)?.contactPersonNumber || '',
+        ).trim()
+        const parkingLocationName = String(
+          (data as any)?.parkingLocationName || (originalDoc as any)?.parkingLocationName || '',
+        ).trim()
+        const parkingLocationPin = String(
+          (data as any)?.parkingLocationPin || (originalDoc as any)?.parkingLocationPin || '',
+        ).trim()
+
         const missing: string[] = []
         if (!meetingPointName) missing.push('Meeting Point - Name')
         if (!meetingPointPin) missing.push('Meeting Point - Google Maps Pin')
@@ -2139,16 +2227,16 @@ export const Reservations: CollectionConfig = {
         if (!contactPersonNumber) missing.push('Contact Person - Number')
         if (!parkingLocationName) missing.push('Car Parking Location - Name')
         if (!parkingLocationPin) missing.push('Car Parking Location - Google Maps Pin')
-      
+
         if (missing.length) {
           throw new Error(
             `Cannot change status from "pending" to "awaiting payment" until these fields are completed: ${missing.join(', ')}`,
           )
         }
-      
+
         return data
       },
-      
+
       async ({ data, req, operation, originalDoc }) => {
         try {
           // Set transaction ID to the document ID for new reservations
