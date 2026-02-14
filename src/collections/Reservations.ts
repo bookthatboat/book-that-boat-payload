@@ -1885,7 +1885,7 @@ const getStatusEmailContent = (
             <p><strong>Guest:</strong> ${reservation.guestName || user.name || 'No name provided'}</p>
             <p><strong>Email:</strong> ${reservation.guestEmail || 'No email provided'}</p>
             <p><strong>Phone:</strong> ${reservation.guestPhone || 'No phone provided'}</p>
-            <p><strong>Dates:</strong> ${safeFormatDate(reservation.startTime)} - ${safeFormatDate(reservation.endTime)}</p>
+            <p><strong>Dates:</strong> ${formatDubaiDateTime(reservation.startTime)} - ${formatDubaiDateTime(reservation.endTime)}</p>
             <p><strong>Transaction ID:</strong> ${reservation.transactionId || reservation.id}</p>
             <p><strong>Payment Status:</strong> ${isPaid ? 'Paid' : 'Unpaid'}</p>
             ${
