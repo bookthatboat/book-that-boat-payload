@@ -997,7 +997,7 @@ const createMamoPaymentLink = async (
     const requestBody = {
       title: `Reservation for ${boat.name}`.substring(0, 75),
       description:
-        `Booking ${formatDateSafe(reservation.startTime)} to ${formatDateSafe(reservation.endTime)}, ${bookingId}`.substring(
+        `Booking ${formatDubaiDateTime(reservation.startTime)} to ${formatDubaiDateTime(reservation.endTime)}, ${bookingId}`.substring(
           0,
           75,
         ),
