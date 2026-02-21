@@ -28,8 +28,8 @@ const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
 
 export default buildConfig({
-  cors: ['http://localhost:3001', 'http://localhost:3000', 'https://bookthatboat.com', 'book-that-boat-frontend.vercel.app', process.env.PAYLOAD_PUBLIC_SERVER_URL || ''],
-  csrf: ['http://localhost:3001', 'http://localhost:3000', 'https://bookthatboat.com', 'book-that-boat-frontend.vercel.app', process.env.PAYLOAD_PUBLIC_SERVER_URL || ''],
+  cors: ['http://localhost:3001', 'http://localhost:3000', 'https://bookthatboat.com', 'https://book-that-boat-frontend.vercel.app', process.env.PAYLOAD_PUBLIC_SERVER_URL || ''],
+  csrf: ['http://localhost:3001', 'http://localhost:3000', 'https://bookthatboat.com', 'https://book-that-boat-frontend.vercel.app', process.env.PAYLOAD_PUBLIC_SERVER_URL || ''],
   onInit: async (payload) => {
     if (process.env.PAYMENT_POLLING_ENABLED === 'true') {
       startPaymentPolling(payload)
