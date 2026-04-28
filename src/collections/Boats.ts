@@ -29,7 +29,7 @@ export const Boats: CollectionConfig = {
   slug: 'boats',
   admin: {
     useAsTitle: 'name',
-    defaultColumns: ['name', 'location', 'price', 'minHours', 'type', 'specialEventTags'],
+    defaultColumns: ['name', 'owner', 'location', 'price', 'minHours', 'type', 'specialEventTags'],
   },
   access: {
     read: () => true,
@@ -162,12 +162,13 @@ export const Boats: CollectionConfig = {
     },
     // Basic Information
     {
-      name: 'owner',
-      type: 'relationship',
-      relationTo: 'owners',
-      required: false,
-      index: true,
-    },
+  name: 'owner',
+  label: 'Supplier',
+  type: 'relationship',
+  relationTo: 'owners',
+  required: false,
+  index: true,
+},
     {
       name: 'name',
       label: 'Boat Name',
