@@ -36,11 +36,14 @@ export default buildConfig({
     }
   },
   admin: {
-    user: Users.slug,
-    importMap: {
-      baseDir: path.resolve(dirname),
-    },
+  user: Users.slug,
+  importMap: {
+    baseDir: path.resolve(dirname),
   },
+  components: {
+    afterNavLinks: ['/components/AdminNavLinks/BookingCalendarLink'],
+  },
+},
   collections: [
     Reservations,
     Owners,
