@@ -152,6 +152,10 @@ export interface Reservation {
   id: string;
   boat?: (string | null) | Boat;
   /**
+   * Auto-copied from the selected boat supplier for admin list visibility.
+   */
+  supplier?: (string | null) | Owner;
+  /**
    * Auto-copied from the selected boat location (used in client emails).
    */
   departureLocation?: string | null;
@@ -485,6 +489,14 @@ export interface Boat {
   salePrice?: number | null;
   priceDay: number;
   minHours: number;
+  /**
+   * Auto-derived numeric length used for size sorting.
+   */
+  lengthFt?: number | null;
+  /**
+   * Auto-maintained count used for Popular sorting.
+   */
+  reservationCount?: number | null;
   /**
    * Set advanced minimum hour rules and special event packages.
    */
@@ -2480,6 +2492,7 @@ export interface PayloadMigration {
  */
 export interface ReservationsSelect<T extends boolean = true> {
   boat?: T;
+  supplier?: T;
   departureLocation?: T;
   meetingPointName?: T;
   meetingPointPin?: T;
@@ -2610,6 +2623,8 @@ export interface BoatsSelect<T extends boolean = true> {
   salePrice?: T;
   priceDay?: T;
   minHours?: T;
+  lengthFt?: T;
+  reservationCount?: T;
   advancedMinHours?:
     | T
     | {
