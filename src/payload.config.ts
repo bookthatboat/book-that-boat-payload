@@ -75,6 +75,89 @@ export default buildConfig({
 },
   endpoints: [
     {
+      path: '/backfill-reservation-suppliers',
+      method: 'post',
+      handler: async (req) => {
+        const secret = req.headers.get('x-backfill-secret')
+
+        if (!process.env.BACKFILL_SECRET || secret !== process.env.BACKFILL_SECRET) {
+          return Response.json({ error: 'Unauthorized' }, { status: 401 })
+        }
+
+        const payload = req.payload
+
+        const reservations = await payload.find({
+          collection: 'reservations',
+          depth: 1,
+          limit: 1000,
+          overrideAccess: true,
+        })
+
+        let updated = 0
+        const sampleResults: Array<{
+          id: string
+          boat?: string
+          supplier?: string
+        }> = []
+
+        for (const reservation of reservations.docs as any[]) {
+          const boatValue = reservation.boat
+          const boatId =
+            typeof boatValue === 'object'
+              ? boatValue?.id
+              : typeof boatValue === 'string'
+                ? boatValue
+                : null
+
+          if (!boatId) continue
+
+          const boat = await payload.findByID({
+            collection: 'boats',
+            id: boatId,
+            depth: 0,
+            overrideAccess: true,
+          })
+
+          const ownerValue = (boat as any)?.owner
+          const supplierId =
+            typeof ownerValue === 'object'
+              ? ownerValue?.id
+              : typeof ownerValue === 'string'
+                ? ownerValue
+                : null
+
+          if (!supplierId) continue
+
+          await payload.update({
+            collection: 'reservations',
+            id: reservation.id,
+            data: {
+              supplier: supplierId,
+            },
+            overrideAccess: true,
+          })
+
+          updated += 1
+
+          if (sampleResults.length < 20) {
+            sampleResults.push({
+              id: reservation.id,
+              boat: boatId,
+              supplier: supplierId,
+            })
+          }
+        }
+
+        return Response.json({
+          success: true,
+          totalReservations: reservations.totalDocs,
+          updated,
+          sampleResults,
+        })
+      },
+    },
+
+    {
       path: '/backfill-boat-sort-fields',
       method: 'post',
       handler: async (req) => {

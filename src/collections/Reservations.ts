@@ -2224,7 +2224,7 @@ const updateBoatReservationCount = async ({
 export const Reservations: CollectionConfig = {
   slug: 'reservations',
   admin: {
-    defaultColumns: ['transactionId', 'boat', 'user', 'status', 'startTime', 'endTime'],
+    defaultColumns: ['transactionId', 'boat', 'supplier', 'user', 'status', 'startTime', 'endTime'],
   },
   access: {
     read: ({ req }) => {
@@ -2314,6 +2314,18 @@ export const Reservations: CollectionConfig = {
                 boatPriceDay = boat.priceDay
                 data.boatHourlyPrice = boatPrice
                 data.boatDailyPrice = boatPriceDay
+
+                const boatOwner = (boat as any)?.owner
+                const supplierId =
+                  typeof boatOwner === 'object'
+                    ? boatOwner?.id
+                    : typeof boatOwner === 'string'
+                      ? boatOwner
+                      : null
+
+                if (supplierId) {
+                  ;(data as any).supplier = supplierId
+                }
 
                 try {
                   const boatLoc: any = (boat as any)?.location
@@ -2708,6 +2720,21 @@ export const Reservations: CollectionConfig = {
       relationTo: 'boats',
       required: false,
       index: true,
+      hooks: {
+        beforeValidate: [({ value }) => (value === '' ? null : value)],
+      },
+    },
+    {
+      name: 'supplier',
+      label: 'Supplier',
+      type: 'relationship',
+      relationTo: 'owners',
+      required: false,
+      index: true,
+      admin: {
+        readOnly: true,
+        description: 'Auto-copied from the selected boat supplier for admin list visibility.',
+      },
       hooks: {
         beforeValidate: [({ value }) => (value === '' ? null : value)],
       },
