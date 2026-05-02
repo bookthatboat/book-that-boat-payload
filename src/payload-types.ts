@@ -88,7 +88,11 @@ export interface Config {
     'payload-preferences': PayloadPreference;
     'payload-migrations': PayloadMigration;
   };
-  collectionsJoins: {};
+  collectionsJoins: {
+    owners: {
+      linkedBoats: 'boats';
+    };
+  };
   collectionsSelect: {
     reservations: ReservationsSelect<false> | ReservationsSelect<true>;
     owners: OwnersSelect<false> | OwnersSelect<true>;
@@ -1118,6 +1122,14 @@ export interface Owner {
       | 'ZW';
   };
   email: string;
+  /**
+   * Boats currently linked to this owner/supplier.
+   */
+  linkedBoats?: {
+    docs?: (string | Boat)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
   bankDetails?: {
     accountName?: string | null;
     iban?: string | null;
@@ -2575,6 +2587,7 @@ export interface OwnersSelect<T extends boolean = true> {
         country?: T;
       };
   email?: T;
+  linkedBoats?: T;
   bankDetails?:
     | T
     | {
