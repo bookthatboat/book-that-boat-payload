@@ -13,6 +13,14 @@ export const Owners: CollectionConfig = {
   slug: 'owners',
   admin: {
     useAsTitle: 'name',
+    defaultColumns: [
+      'name',
+      'administrativeContact.firstName',
+      'administrativeContact.lastName',
+      'administrativeContact.email',
+      'email',
+      'contactNumber',
+    ],
   },
   fields: [
     // Owner Information
