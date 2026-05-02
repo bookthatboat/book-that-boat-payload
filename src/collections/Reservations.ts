@@ -2174,6 +2174,53 @@ const sendInstallmentEmail = async (
   )
 }
 
+const getRelationshipId = (value: unknown): string | null => {
+  if (!value) return null
+  if (typeof value === 'string') return value
+
+  if (typeof value === 'object' && 'id' in value) {
+    const id = (value as { id?: unknown }).id
+    return typeof id === 'string' ? id : null
+  }
+
+  return null
+}
+
+const updateBoatReservationCount = async ({
+  payload,
+  boatId,
+  req,
+}: {
+  payload: any
+  boatId: string | null
+  req?: any
+}) => {
+  if (!boatId) return
+
+  const result = await payload.find({
+    req,
+    collection: 'reservations',
+    where: {
+      boat: {
+        equals: boatId,
+      },
+    },
+    depth: 0,
+    limit: 0,
+    overrideAccess: true,
+  })
+
+  await payload.update({
+    req,
+    collection: 'boats',
+    id: boatId,
+    data: {
+      reservationCount: Number(result.totalDocs || 0),
+    },
+    overrideAccess: true,
+  })
+}
+
 export const Reservations: CollectionConfig = {
   slug: 'reservations',
   admin: {
@@ -2400,6 +2447,27 @@ export const Reservations: CollectionConfig = {
         const doc = untypedDoc as Reservation
         const previousDoc = untypedPreviousDoc as Reservation | undefined
 
+        try {
+          const currentBoatId = getRelationshipId(doc.boat)
+          const previousBoatId = getRelationshipId(previousDoc?.boat)
+
+          const boatIds = Array.from(
+            new Set([currentBoatId, previousBoatId].filter(Boolean) as string[]),
+          )
+
+          await Promise.all(
+            boatIds.map((boatId) =>
+              updateBoatReservationCount({
+                payload: req.payload,
+                boatId,
+                req,
+              }),
+            ),
+          )
+        } catch (e) {
+          console.error('Reservation count update failed:', e)
+        }
+
         // ✅ COUPON USAGE COUNT (put this BEFORE any early returns)
         try {
           const couponId = typeof doc.coupon === 'object' ? doc.coupon?.id : doc.coupon
@@ -2615,6 +2683,21 @@ export const Reservations: CollectionConfig = {
         } catch (error: unknown) {
           console.error('Error in afterChange hook:', error)
         }
+      },
+    ],
+    afterDelete: [
+      async ({ doc, req }) => {
+        try {
+          await updateBoatReservationCount({
+            payload: req.payload,
+            boatId: getRelationshipId((doc as Reservation).boat),
+            req,
+          })
+        } catch (e) {
+          console.error('Reservation count update after delete failed:', e)
+        }
+
+        return doc
       },
     ],
   },

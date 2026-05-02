@@ -11,6 +11,19 @@ const generateSlug = (name: string): string => {
     .trim()
 }
 
+const parseLengthFt = (value: unknown): number | undefined => {
+  const raw = String(value ?? '').trim()
+
+  if (!raw) return undefined
+
+  const match = raw.match(/\d+(\.\d+)?/)
+  if (!match) return undefined
+
+  const length = Number(match[0])
+
+  return Number.isFinite(length) ? length : undefined
+}
+
 async function getLocationName(locationId: string, req: any): Promise<string> {
   try {
     const location = await req.payload.findByID({
@@ -44,6 +57,21 @@ export const Boats: CollectionConfig = {
             .replace(/[^a-z0-9]+/g, '-')
             .replace(/(^-|-$)+/g, '')
         }
+        return data
+      },
+
+      ({ data, originalDoc }) => {
+        const rawLength = data?.boatSpecifications?.length ?? originalDoc?.boatSpecifications?.length
+        const lengthFt = parseLengthFt(rawLength)
+
+        if (typeof lengthFt === 'number') {
+          data.lengthFt = lengthFt
+        }
+
+        if (typeof data.reservationCount !== 'number') {
+          data.reservationCount = Number(originalDoc?.reservationCount || 0)
+        }
+
         return data
       },
 
@@ -208,6 +236,27 @@ export const Boats: CollectionConfig = {
       label: 'Minimum Number of Hours',
       required: true,
       defaultValue: 1,
+    },
+    {
+      name: 'lengthFt',
+      type: 'number',
+      label: 'Length (ft)',
+      index: true,
+      admin: {
+        readOnly: true,
+        description: 'Auto-derived numeric length used for size sorting.',
+      },
+    },
+    {
+      name: 'reservationCount',
+      type: 'number',
+      label: 'Reservation Count',
+      defaultValue: 0,
+      index: true,
+      admin: {
+        readOnly: true,
+        description: 'Auto-maintained count used for Popular sorting.',
+      },
     },
     {
       name: 'advancedMinHours',
