@@ -151,6 +151,16 @@ export const Owners: CollectionConfig = {
       label: 'Email',
       required: true,
     },
+    {
+      name: 'linkedBoats',
+      label: 'Linked Boats',
+      type: 'join',
+      collection: 'boats',
+      on: 'owner',
+      admin: {
+        description: 'Boats currently linked to this owner/supplier.',
+      },
+    },
 
     // Banking Details
     {
