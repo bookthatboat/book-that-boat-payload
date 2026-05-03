@@ -3950,6 +3950,7 @@ export const Reservations: CollectionConfig = {
       type: 'select',
       label: 'Default Payment Method',
       options: ['Mamo Pay', 'Bank Transfer', 'Cash'],
+      defaultValue: 'Mamo Pay',
       required: true,
       admin: {
         description:
