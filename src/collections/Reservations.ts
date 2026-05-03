@@ -123,7 +123,36 @@ const withWriteConflictRetry = async <T>(fn: () => Promise<T>, retries = 4) => {
 } */
 
 type InstallmentStage = 'paid' | 'ready_to_be_installed' | 'installed_ready_to_be_paid'
-type PaymentKind = 'full' | 'downpayment' | 'installment'
+type PaymentKind = 'full' | 'downpayment' | 'installment' | 'balance' | 'adjustment'
+type PaymentStatus = 'pending' | 'manual_pending' | 'completed' | 'failed' | 'refunded' | 'cancelled' | 'superseded'
+
+const MAMO_PROCESSING_FEE_PERCENTAGE = 4
+
+const getPaymentFeeFields = ({
+  amount,
+  method,
+}: {
+  amount: number
+  method?: 'Mamo Pay' | 'Bank Transfer' | 'Cash'
+}) => {
+  const safeAmount = Math.max(0, Number(amount || 0))
+
+  if (method !== 'Mamo Pay') {
+    return {
+      processingFeePercentage: 0,
+      processingFeeAmount: 0,
+      customerPayableAmount: safeAmount,
+    }
+  }
+
+  const processingFeeAmount = Math.round(safeAmount * (MAMO_PROCESSING_FEE_PERCENTAGE / 100))
+
+  return {
+    processingFeePercentage: MAMO_PROCESSING_FEE_PERCENTAGE,
+    processingFeeAmount,
+    customerPayableAmount: safeAmount + processingFeeAmount,
+  }
+}
 
 interface Reservation {
   id: string
@@ -133,7 +162,7 @@ interface Reservation {
   startTime: Date | string
   endTime: Date | string
   totalPrice: number
-  paymentMethod?: 'full' | 'installments'
+  paymentMethod?: 'full' | 'installments' | 'deposit_balance' | 'custom_schedule'
   method?: 'Mamo Pay' | 'Bank Transfer' | 'Cash'
   payments?: Array<{
     id?: string
@@ -145,7 +174,7 @@ interface Reservation {
      * We store the actual payment time in `paidAt`.
      */
     date: string
-    status: 'pending' | 'completed' | 'failed' | 'refunded'
+    status: PaymentStatus
     installmentStage?: InstallmentStage
     createdAt?: string
     installedAt?: string
@@ -154,6 +183,9 @@ interface Reservation {
     notes: string
     paymentLink?: string
     paymentLinkId?: string
+    processingFeePercentage?: number
+    processingFeeAmount?: number
+    customerPayableAmount?: number
   }>
   guests?: number
   guestName?: string
@@ -1006,7 +1038,7 @@ const createMamoPaymentLink = async (
       return_url: `${APP_URLS.frontend}/payment-success`,
       failure_return_url: `${APP_URLS.frontend}/payment-failure`,
       active: true,
-      processing_fee_percentage: 4,
+      processing_fee_percentage: MAMO_PROCESSING_FEE_PERCENTAGE,
       link_type: 'standalone',
       enable_tabby: false,
       enable_message: false,
@@ -1075,6 +1107,47 @@ const createMamoPaymentLink = async (
     return null
   }
 }
+
+const deleteMamoPaymentLink = async (paymentLinkId?: string): Promise<boolean> => {
+  if (!paymentLinkId) return false
+
+  // Mock links are local/dev only and do not exist in Mamo.
+  if (paymentLinkId.startsWith('mock-link-')) {
+    console.log(`Skipping Mamo delete for mock payment link ${paymentLinkId}`)
+    return true
+  }
+
+  if (!MAMOPAY_CONFIG.apiKey || MAMOPAY_CONFIG.apiKey === 'invalid') {
+    console.warn(`MAMOPAY_API_KEY missing. Could not delete payment link ${paymentLinkId}`)
+    return false
+  }
+
+  try {
+    const response = await fetch(
+      `${MAMOPAY_CONFIG.baseUrl}/manage_api/v1/links/${encodeURIComponent(paymentLinkId)}`,
+      {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${MAMOPAY_CONFIG.apiKey}`,
+        },
+      },
+    )
+
+    if (response.ok) {
+      console.log(`Deleted/deactivated Mamo payment link ${paymentLinkId}`)
+      return true
+    }
+
+    const text = await response.text().catch(() => '')
+    console.error(`Failed to delete Mamo payment link ${paymentLinkId}:`, response.status, text)
+    return false
+  } catch (error) {
+    console.error(`Error deleting Mamo payment link ${paymentLinkId}:`, error)
+    return false
+  }
+}
+
 
 // Creative email templates
 const getCreativeEmailTemplate = (
@@ -2006,13 +2079,294 @@ const sendInstallmentReminderEmail = async (
   )
 }
 
+const ACTIVE_PENDING_PAYMENT_STATUSES = new Set(['pending', 'manual_pending'])
+
+const getCompletedPaidAmount = (payments: Reservation['payments'] | undefined): number => {
+  if (!Array.isArray(payments)) return 0
+
+  return payments.reduce((sum, payment) => {
+    if (payment?.status !== 'completed') return sum
+    return sum + Number(payment.amount || 0)
+  }, 0)
+}
+
+const getActivePendingPayments = (payments: Reservation['payments'] | undefined) => {
+  if (!Array.isArray(payments)) return []
+
+  return payments.filter((payment) => ACTIVE_PENDING_PAYMENT_STATUSES.has(payment?.status || ''))
+}
+
+const getActivePendingAmount = (payments: Reservation['payments'] | undefined): number => {
+  return getActivePendingPayments(payments).reduce((sum, payment) => {
+    return sum + Number(payment.amount || 0)
+  }, 0)
+}
+
+const getDefaultBalanceDueDate = (reservation: Reservation): string => {
+  const start = new Date(reservation.startTime)
+  const now = new Date()
+
+  if (Number.isNaN(start.getTime())) {
+    return now.toISOString()
+  }
+
+  const due = new Date(start)
+  due.setHours(due.getHours() - 72)
+
+  if (due < now) {
+    return now.toISOString()
+  }
+
+  return due.toISOString()
+}
+
+const getPaymentKindForOutstanding = ({
+  paidAmount,
+  paymentMethod,
+}: {
+  paidAmount: number
+  paymentMethod?: Reservation['paymentMethod']
+}): PaymentKind => {
+  if (paidAmount > 0) return 'balance'
+  if (paymentMethod === 'deposit_balance') return 'downpayment'
+  return 'full'
+}
+
+const createPaymentRowForOutstanding = async ({
+  doc,
+  req,
+  amount,
+  paidAmount,
+  method,
+  notes,
+}: {
+  doc: Reservation
+  req: any
+  amount: number
+  paidAmount: number
+  method: Reservation['method']
+  notes: string
+}) => {
+  const now = new Date().toISOString()
+  const kind = getPaymentKindForOutstanding({
+    paidAmount,
+    paymentMethod: doc.paymentMethod,
+  })
+
+  const basePayment = {
+    id: `${kind}-${Date.now()}`,
+    kind,
+    installmentStage:
+      method === 'Mamo Pay'
+        ? ('installed_ready_to_be_paid' as InstallmentStage)
+        : ('ready_to_be_installed' as InstallmentStage),
+    createdAt: now,
+    installedAt: method === 'Mamo Pay' ? now : '',
+    paidAt: '',
+    amount,
+    method: method || 'Mamo Pay',
+    date: now,
+    status: method === 'Mamo Pay' ? ('pending' as PaymentStatus) : ('manual_pending' as PaymentStatus),
+    balance: 0,
+    paymentLink: '',
+    paymentLinkId: '',
+    notes,
+  }
+
+  if (method !== 'Mamo Pay') {
+    return basePayment
+  }
+
+  const boatId = typeof doc.boat === 'object' ? doc.boat.id : doc.boat
+
+  if (!boatId) {
+    return basePayment
+  }
+
+  const boat = (await req.payload.findByID({
+    collection: 'boats',
+    id: boatId,
+    depth: 2,
+    overrideAccess: true,
+  })) as unknown as Boat
+
+  const user = {
+    name: doc.guestName || (typeof doc.user === 'string' ? doc.user : '') || 'Guest',
+    email: doc.guestEmail || '',
+  } as unknown as User
+
+  const paymentReservation = {
+    ...doc,
+    totalPrice: amount,
+  } as Reservation
+
+  const paymentLink = await createMamoPaymentLink(paymentReservation, boat, user)
+
+  if (!paymentLink) {
+    console.warn(`Payment link was not created for reservation ${doc.id}`)
+    return basePayment
+  }
+
+  return {
+    ...basePayment,
+    paymentLink: paymentLink.url,
+    paymentLinkId: paymentLink.id,
+  }
+}
+
+const supersedeActivePendingPayments = async ({
+  payments,
+  reason,
+}: {
+  payments: NonNullable<Reservation['payments']>
+  reason: string
+}) => {
+  const now = new Date().toISOString()
+  const superseded: NonNullable<Reservation['payments']> = []
+
+  for (const payment of payments) {
+    if (!ACTIVE_PENDING_PAYMENT_STATUSES.has(payment?.status || '')) {
+      superseded.push(payment)
+      continue
+    }
+
+    if (payment.method === 'Mamo Pay' && payment.paymentLinkId) {
+      await deleteMamoPaymentLink(payment.paymentLinkId)
+    }
+
+    superseded.push({
+      ...payment,
+      status: 'superseded' as PaymentStatus,
+      notes: `${payment.notes || ''}${payment.notes ? '\n' : ''}Superseded ${now}: ${reason}`,
+    })
+  }
+
+  return superseded
+}
+
+const reconcileReservationPaymentsAfterTotalChange = async ({
+  doc,
+  previousDoc,
+  req,
+}: {
+  doc: Reservation
+  previousDoc?: Reservation
+  req: any
+}) => {
+  if ((req as any)?.context?.skipPaymentReconciliation) return doc
+  if (!previousDoc) return doc
+
+  const totalPrice = Math.max(0, Math.round(Number(doc.totalPrice || 0)))
+  const previousTotalPrice = Math.max(0, Math.round(Number(previousDoc.totalPrice || 0)))
+
+  if (totalPrice === previousTotalPrice) return doc
+
+  const existingPayments = Array.isArray(doc.payments) ? [...doc.payments] : []
+
+  if (existingPayments.length === 0) {
+    return doc
+  }
+
+  const paidAmount = getCompletedPaidAmount(existingPayments)
+  const activePendingAmount = getActivePendingAmount(existingPayments)
+  const outstandingAmount = Math.max(0, Math.round(totalPrice - paidAmount))
+  const overpaidAmount = Math.max(0, Math.round(paidAmount - totalPrice))
+
+  const reason = `Reservation total changed from AED ${previousTotalPrice} to AED ${totalPrice}.`
+
+  let updatedPayments = await supersedeActivePendingPayments({
+    payments: existingPayments,
+    reason,
+  })
+
+  let topLevelPaymentLink = ''
+  let topLevelPaymentLinkId = ''
+
+  if (outstandingAmount > 0) {
+    const method = doc.method || 'Mamo Pay'
+
+    const payment = await createPaymentRowForOutstanding({
+      doc,
+      req,
+      amount: outstandingAmount,
+      paidAmount,
+      method,
+      notes:
+        paidAmount > 0
+          ? `Outstanding balance after reservation total update. Paid: AED ${paidAmount}. New total: AED ${totalPrice}. Previous pending amount: AED ${activePendingAmount}.`
+          : `Replacement payment request after reservation total update. New total: AED ${totalPrice}. Previous pending amount: AED ${activePendingAmount}.`,
+    })
+
+    updatedPayments = [...updatedPayments, payment]
+
+    if (payment.method === 'Mamo Pay') {
+      topLevelPaymentLink = payment.paymentLink || ''
+      topLevelPaymentLinkId = payment.paymentLinkId || ''
+    }
+  } else if (overpaidAmount > 0) {
+    updatedPayments = [
+      ...updatedPayments,
+      {
+        id: `overpaid-${Date.now()}`,
+        kind: 'adjustment' as PaymentKind,
+        installmentStage: 'paid' as InstallmentStage,
+        createdAt: new Date().toISOString(),
+        installedAt: '',
+        paidAt: '',
+        amount: overpaidAmount,
+        method: doc.method || 'Mamo Pay',
+        date: new Date().toISOString(),
+        status: 'manual_pending' as PaymentStatus,
+        balance: 0,
+        paymentLink: '',
+        paymentLinkId: '',
+        notes: `Reservation is overpaid by AED ${overpaidAmount}. Manual refund/credit review required.`,
+      },
+    ]
+  }
+
+  await withWriteConflictRetry(() =>
+    req.payload.update({
+      collection: 'reservations',
+      id: doc.id,
+      data: {
+        payments: updatedPayments,
+        paymentLink: topLevelPaymentLink,
+        paymentLinkId: topLevelPaymentLinkId,
+      },
+      overrideAccess: true,
+      context: {
+        skipPaymentReconciliation: true,
+        skipBalancePaymentLink: true,
+      },
+    }),
+  )
+
+  if (topLevelPaymentLink) {
+    startPaymentPolling(req.payload)
+  }
+
+  return {
+    ...doc,
+    payments: updatedPayments,
+    paymentLink: topLevelPaymentLink,
+    paymentLinkId: topLevelPaymentLinkId,
+  }
+}
+
+
 const createInstallmentPlan = async (
   reservation: Reservation,
   boat: Boat,
   user: User,
   payload: any,
 ) => {
-  const numberOfInstallmentsRaw = Number(reservation.numberOfInstallments ?? 3)
+  const isDepositBalancePlan = reservation.paymentMethod === 'deposit_balance'
+
+  const numberOfInstallmentsRaw = isDepositBalancePlan
+    ? 1
+    : Number(reservation.numberOfInstallments ?? 3)
+
   const numberOfInstallments = Number.isFinite(numberOfInstallmentsRaw)
     ? Math.max(0, Math.floor(numberOfInstallmentsRaw))
     : 3
@@ -2068,12 +2422,17 @@ const createInstallmentPlan = async (
     const amount = installmentAmounts[i]
     remainingBalance -= amount
 
-    const dueDate = new Date(now)
-    dueDate.setDate(dueDate.getDate() + (i + 1) * 30) // 30-day intervals
+    const dueDate = isDepositBalancePlan
+      ? new Date(getDefaultBalanceDueDate(reservation))
+      : new Date(now)
+
+    if (!isDepositBalancePlan) {
+      dueDate.setDate(dueDate.getDate() + (i + 1) * 30) // 30-day intervals
+    }
 
     payments.push({
-      id: `installment-${i + 1}-${Date.now()}`,
-      kind: 'installment',
+      id: `${isDepositBalancePlan ? 'balance' : 'installment'}-${i + 1}-${Date.now()}`,
+      kind: isDepositBalancePlan ? 'balance' : 'installment',
       amount,
       method: 'Mamo Pay',
       date: dueDate.toISOString(), // scheduled activation date
@@ -2085,7 +2444,9 @@ const createInstallmentPlan = async (
       balance: Math.max(0, remainingBalance),
       paymentLink: '',
       paymentLinkId: '',
-      notes: `Installment ${i + 1} of ${installmentAmounts.length}`,
+      notes: isDepositBalancePlan
+        ? 'Balance due before departure'
+        : `Installment ${i + 1} of ${installmentAmounts.length}`,
     } as any)
   }
 
@@ -2184,6 +2545,202 @@ const getRelationshipId = (value: unknown): string | null => {
   }
 
   return null
+}
+
+const getRelationshipIds = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return []
+
+  return value
+    .map((item) => getRelationshipId(item))
+    .filter(Boolean) as string[]
+}
+
+const toSafeNumber = (value: unknown): number => {
+  const numberValue = Number(value || 0)
+  return Number.isFinite(numberValue) ? numberValue : 0
+}
+
+const getMergedReservationValue = (data: any, originalDoc: any, key: string) => {
+  return data?.[key] !== undefined ? data[key] : originalDoc?.[key]
+}
+
+const calculateCouponDiscountForReservation = ({
+  coupon,
+  subtotalBeforeDiscount,
+  boatId,
+}: {
+  coupon: any
+  subtotalBeforeDiscount: number
+  boatId: string | null
+}) => {
+  if (!coupon?.id || !coupon?.isActive) return 0
+
+  if (coupon.expiresAt) {
+    const expiresAt = new Date(coupon.expiresAt)
+
+    if (!Number.isNaN(expiresAt.getTime()) && expiresAt < new Date()) {
+      return 0
+    }
+  }
+
+  if (!coupon.applyToAllBoats) {
+    const allowedBoatIds = getRelationshipIds(coupon.boats)
+
+    if (boatId && allowedBoatIds.length > 0 && !allowedBoatIds.includes(boatId)) {
+      return 0
+    }
+  }
+
+  const amount = toSafeNumber(coupon.amount)
+
+  if (coupon.type === 'percentage') {
+    return Math.min(subtotalBeforeDiscount, subtotalBeforeDiscount * (amount / 100))
+  }
+
+  if (coupon.type === 'fixed') {
+    return Math.min(subtotalBeforeDiscount, amount)
+  }
+
+  return 0
+}
+
+const calculateReservationTotalForSave = async ({
+  req,
+  data,
+  originalDoc,
+}: {
+  req: any
+  data: any
+  originalDoc?: any
+}) => {
+  const boatValue = getMergedReservationValue(data, originalDoc, 'boat')
+  const boatId = getRelationshipId(boatValue)
+
+  const startTimeValue = getMergedReservationValue(data, originalDoc, 'startTime')
+  const endTimeValue = getMergedReservationValue(data, originalDoc, 'endTime')
+
+  if (!boatId || !startTimeValue || !endTimeValue) {
+    return data
+  }
+
+  const startTime = new Date(startTimeValue)
+  const endTime = new Date(endTimeValue)
+
+  if (
+    Number.isNaN(startTime.getTime()) ||
+    Number.isNaN(endTime.getTime()) ||
+    endTime <= startTime
+  ) {
+    data.totalPrice = 0
+    return data
+  }
+
+  const boat = await req.payload.findByID({
+    collection: 'boats',
+    id: boatId,
+    depth: 0,
+    overrideAccess: true,
+  })
+
+  const hours = Math.ceil((endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60))
+  const hourlyPrice = toSafeNumber(boat?.price)
+  const dailyPrice = toSafeNumber(boat?.priceDay)
+
+  let basePrice = 0
+
+  if (hours >= 24) {
+    basePrice = Math.ceil(hours / 24) * dailyPrice
+  } else {
+    basePrice = hours * hourlyPrice
+  }
+
+  data.boatHourlyPrice = hourlyPrice
+  data.boatDailyPrice = dailyPrice
+
+  const extras = getMergedReservationValue(data, originalDoc, 'extras')
+  const otherExtras = getMergedReservationValue(data, originalDoc, 'otherExtras')
+  const couponValue = getMergedReservationValue(data, originalDoc, 'coupon')
+  const customDiscountAmount = Math.max(
+    0,
+    toSafeNumber(getMergedReservationValue(data, originalDoc, 'customDiscountAmount')),
+  )
+
+  let extrasTotal = 0
+
+  if (Array.isArray(extras)) {
+    for (const row of extras) {
+      const extraId = getRelationshipId(row?.extra)
+      let unitPrice = toSafeNumber(row?.unitPrice)
+
+      if (extraId && unitPrice <= 0) {
+        try {
+          const extraDoc = await req.payload.findByID({
+            collection: 'extras',
+            id: extraId,
+            depth: 0,
+            overrideAccess: true,
+          })
+
+          unitPrice = toSafeNumber(extraDoc?.unitPrice)
+          row.unitPrice = unitPrice
+        } catch {
+          // Keep existing row price if the extra cannot be loaded.
+        }
+      }
+
+      const quantity = Math.max(1, toSafeNumber(row?.quantity) || 1)
+      extrasTotal += unitPrice * quantity
+    }
+  }
+
+  const otherExtrasTotal = Array.isArray(otherExtras)
+    ? otherExtras.reduce((sum, row) => {
+        const unitPrice = toSafeNumber(row?.price)
+        const quantity = Math.max(1, toSafeNumber(row?.quantity) || 1)
+
+        return sum + unitPrice * quantity
+      }, 0)
+    : 0
+
+  const subtotalBeforeDiscount = basePrice + extrasTotal + otherExtrasTotal
+
+  let couponDiscount = 0
+  let couponCode = ''
+
+  const couponId = getRelationshipId(couponValue)
+
+  if (couponId) {
+    try {
+      const couponDoc = await req.payload.findByID({
+        collection: 'coupons',
+        id: couponId,
+        depth: 1,
+        overrideAccess: true,
+      })
+
+      couponCode = couponDoc?.code || ''
+      couponDiscount = calculateCouponDiscountForReservation({
+        coupon: couponDoc,
+        subtotalBeforeDiscount,
+        boatId,
+      })
+    } catch {
+      couponDiscount = 0
+    }
+  }
+
+  const customDiscount = Math.min(subtotalBeforeDiscount, customDiscountAmount)
+  const totalDiscount = Math.min(subtotalBeforeDiscount, couponDiscount + customDiscount)
+
+  data.totalPrice = Math.max(0, Math.round(subtotalBeforeDiscount - totalDiscount))
+
+  if (couponCode) {
+    data.couponCode = couponCode
+  } else if (!couponId) {
+    data.couponCode = ''
+  }
+
+  return data
 }
 
 const updateBoatReservationCount = async ({
@@ -2453,6 +3010,18 @@ export const Reservations: CollectionConfig = {
           return data
         }
       },
+      async ({ data, originalDoc, req }) => {
+        try {
+          return await calculateReservationTotalForSave({
+            req,
+            data,
+            originalDoc,
+          })
+        } catch (error) {
+          console.error('Error calculating final reservation total:', error)
+          return data
+        }
+      },
     ],
     afterChange: [
       async ({ doc: untypedDoc, previousDoc: untypedPreviousDoc, operation, req }) => {
@@ -2513,6 +3082,16 @@ export const Reservations: CollectionConfig = {
           // don't throw — keep reservation flow stable
         }
 
+        try {
+          await reconcileReservationPaymentsAfterTotalChange({
+            doc,
+            previousDoc,
+            req,
+          })
+        } catch (paymentReconciliationError) {
+          console.error('Payment reconciliation after total change failed:', paymentReconciliationError)
+        }
+
         // Check if we need to process status changes
         const shouldProcessStatusChange =
           operation === 'create' || (operation === 'update' && doc.status !== previousDoc?.status)
@@ -2557,7 +3136,7 @@ export const Reservations: CollectionConfig = {
           if (shouldProcessPaymentLink) {
             try {
               // Check if this is an installment payment or single payment
-              const useInstallments = doc.paymentMethod === 'installments'
+              const useInstallments = doc.paymentMethod === 'installments' || doc.paymentMethod === 'deposit_balance'
 
               if (useInstallments) {
                 // Create installment plan (down payment link now + scheduled installments later)
@@ -2812,10 +3391,11 @@ export const Reservations: CollectionConfig = {
     {
       name: 'paymentMethod',
       type: 'select',
-      label: 'Payment Method',
+      label: 'Payment Plan',
       options: [
-        { label: 'Full Payment', value: 'full' },
-        { label: 'Installments', value: 'installments' },
+        { label: 'Full Payment Now', value: 'full' },
+        { label: 'Deposit + Balance', value: 'deposit_balance' },
+        { label: 'Custom Installments', value: 'installments' },
       ],
       defaultValue: 'full',
       required: true,
@@ -2832,7 +3412,7 @@ export const Reservations: CollectionConfig = {
       admin: {
         position: 'sidebar',
         condition: (data) => data?.paymentMethod === 'installments',
-        description: 'Number of installments AFTER the down payment (e.g. 1, 2, 3, 4)',
+        description: 'Number of installments AFTER the down payment. For Deposit + Balance, the system creates one balance payment due 72 hours before departure.',
       },
     },
     {
@@ -2842,9 +3422,9 @@ export const Reservations: CollectionConfig = {
       required: false,
       admin: {
         position: 'sidebar',
-        condition: (data) => data?.paymentMethod === 'installments',
+        condition: (data) => data?.paymentMethod === 'installments' || data?.paymentMethod === 'deposit_balance',
         description:
-          'Optional. If empty, the system defaults to an even split across (installments + 1).',
+          'Optional deposit amount. If empty, the system defaults to an even split. For Deposit + Balance, the remaining balance is due 72 hours before departure.',
       },
     },
 
@@ -2941,6 +3521,30 @@ export const Reservations: CollectionConfig = {
       },
     },
     {
+      name: 'customDiscountAmount',
+      type: 'number',
+      label: 'Custom Discount Amount (AED)',
+      required: false,
+      min: 0,
+      defaultValue: 0,
+      admin: {
+        description: 'Optional manual discount amount, e.g. enter 100 to take AED 100 off the reservation total.',
+        condition: (data) => !!data?.boat && !!data?.startTime && !!data?.endTime,
+      },
+    },
+    {
+      name: 'reservationPriceCalculator',
+      type: 'ui',
+      label: 'Live Reservation Price',
+      admin: {
+        condition: (data) => !!data?.boat && !!data?.startTime && !!data?.endTime,
+        components: {
+          Field:
+            '/components/ReservationPriceCalculator/ReservationPriceCalculator#ReservationPriceCalculator',
+        },
+      },
+    },
+    {
       name: 'totalPrice',
       type: 'number',
       label: 'Total (AED)',
@@ -2962,9 +3566,9 @@ export const Reservations: CollectionConfig = {
       type: 'array',
       label: 'Payments',
       admin: {
-        description: 'Instalment of all payments made for this reservation',
-        initCollapsed: true,
-        condition: (data) => data?.paymentMethod === 'installments',
+        description:
+          'Payment ledger for this reservation. Completed payments are kept. Pending unpaid links are superseded and replaced when the total changes.',
+        initCollapsed: false,
       },
       fields: [
         {
@@ -2983,6 +3587,8 @@ export const Reservations: CollectionConfig = {
             { label: 'Full', value: 'full' },
             { label: 'Down Payment', value: 'downpayment' },
             { label: 'Installment', value: 'installment' },
+            { label: 'Balance Payment', value: 'balance' },
+            { label: 'Adjustment / Refund Review', value: 'adjustment' },
           ],
           admin: { readOnly: true },
         },
@@ -3029,6 +3635,33 @@ export const Reservations: CollectionConfig = {
           required: true,
         },
         {
+          name: 'processingFeePercentage',
+          type: 'number',
+          label: 'Processing Fee (%)',
+          admin: {
+            readOnly: true,
+            description: 'Mamo Pay processing fee percentage. Zero for bank transfer and cash.',
+          },
+        },
+        {
+          name: 'processingFeeAmount',
+          type: 'number',
+          label: 'Processing Fee Amount (AED)',
+          admin: {
+            readOnly: true,
+            description: 'Fee amount added to Mamo Pay links.',
+          },
+        },
+        {
+          name: 'customerPayableAmount',
+          type: 'number',
+          label: 'Customer Payable Amount (AED)',
+          admin: {
+            readOnly: true,
+            description: 'Payment amount plus processing fee where applicable.',
+          },
+        },
+        {
           name: 'date',
           type: 'date',
           label: 'Payment Date',
@@ -3045,9 +3678,12 @@ export const Reservations: CollectionConfig = {
           label: 'Payment Status',
           options: [
             { label: 'Pending', value: 'pending' },
+            { label: 'Manual Pending', value: 'manual_pending' },
             { label: 'Completed', value: 'completed' },
             { label: 'Failed', value: 'failed' },
             { label: 'Refunded', value: 'refunded' },
+            { label: 'Cancelled', value: 'cancelled' },
+            { label: 'Superseded', value: 'superseded' },
           ],
           defaultValue: 'pending',
           required: true,
@@ -3176,8 +3812,7 @@ export const Reservations: CollectionConfig = {
       relationTo: 'coupons',
       required: false,
       admin: {
-        position: 'sidebar',
-        description: 'Applied coupon for this reservation (set from frontend)',
+        description: 'Optional. Select a coupon to apply its discount to the reservation total.',
       },
     },
     {
@@ -3185,9 +3820,8 @@ export const Reservations: CollectionConfig = {
       type: 'text',
       required: false,
       admin: {
-        position: 'sidebar',
         readOnly: true,
-        description: 'Coupon code snapshot at time of booking',
+        description: 'Coupon code snapshot saved when the reservation is calculated.',
       },
     },
   ],
