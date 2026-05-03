@@ -425,6 +425,10 @@ export interface Reservation {
    */
   method: 'Mamo Pay' | 'Bank Transfer' | 'Cash';
   /**
+   * Tick this when the customer has already paid by bank transfer or cash. The generated manual payment row will be marked completed.
+   */
+  manualPaymentReceived?: boolean | null;
+  /**
    * Payment ledger for this reservation. Completed payments are kept. Pending unpaid links are superseded and replaced when the total changes.
    */
   payments?:
@@ -2553,6 +2557,7 @@ export interface ReservationsSelect<T extends boolean = true> {
   customDiscountAmount?: T;
   totalPrice?: T;
   method?: T;
+  manualPaymentReceived?: T;
   payments?:
     | T
     | {
