@@ -428,7 +428,7 @@ export interface Reservation {
    */
   method: 'Mamo Pay' | 'Bank Transfer' | 'Cash';
   /**
-   * Raw payment ledger data. Managed through the Payment Manager table above.
+   * Build and track the reservation payment schedule. Payment links are stored per row.
    */
   payments?:
     | {
