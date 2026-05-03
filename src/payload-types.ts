@@ -609,6 +609,9 @@ export interface Boat {
    */
   routes?: (string | Route)[] | null;
   media: string | Media;
+  /**
+   * Bulk upload up to 20 images, then drag thumbnails to reorder. Save the boat after uploading/reordering.
+   */
   gallery?:
     | {
         image: string | Media;

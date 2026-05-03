@@ -4,6 +4,21 @@ import path from 'node:path'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
+const codespaceName = process.env.CODESPACE_NAME
+const codespaceDomain =
+  process.env.GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN || 'app.github.dev'
+
+const codespaceOrigin = codespaceName
+  ? `${codespaceName}-3000.${codespaceDomain}`
+  : undefined
+
+const serverActionAllowedOrigins = [
+  'localhost:3000',
+  '127.0.0.1:3000',
+  'book-that-boat-payload-production.up.railway.app',
+  codespaceOrigin,
+].filter(Boolean)
+
 export default withPayload({
   reactStrictMode: true,
 
@@ -11,7 +26,8 @@ export default withPayload({
 
   experimental: {
     serverActions: {
-      bodySizeLimit: '2mb',
+      bodySizeLimit: '20mb',
+      allowedOrigins: serverActionAllowedOrigins,
     },
   },
 
@@ -29,11 +45,6 @@ export default withPayload({
         hostname: 'iqs9cmwxvznbiu7f.public.blob.vercel-storage.com',
         pathname: '/**',
       },
-     /*  {
-        protocol: 'https',
-        hostname: '.public.blob.vercel-storage.com',
-        pathname: '/**',
-      }, */
       {
         protocol: 'https',
         hostname: 'bookthatboat.com',
