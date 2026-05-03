@@ -27,6 +27,25 @@ import { Subscribers } from './collections/Subscribers'
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
 
+const codespaceName = process.env.CODESPACE_NAME
+const codespaceDomain =
+  process.env.GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN || 'app.github.dev'
+
+const codespaceOrigin = codespaceName
+  ? `https://${codespaceName}-3000.${codespaceDomain}`
+  : ''
+
+const allowedOrigins = [
+  'http://localhost:3001',
+  'http://localhost:3000',
+  'https://bookthatboat.com',
+  'https://www.bookthatboat.com',
+  'https://book-that-boat-frontend.vercel.app',
+  'https://book-that-boat-payload-production.up.railway.app',
+  codespaceOrigin,
+  process.env.PAYLOAD_PUBLIC_SERVER_URL || '',
+].filter(Boolean)
+
 
 const parseLengthFt = (value: unknown): number | undefined => {
   const raw = String(value ?? '').trim()
@@ -39,26 +58,8 @@ const parseLengthFt = (value: unknown): number | undefined => {
 }
 
 export default buildConfig({
-  cors: [
-    'http://localhost:3001',
-    'http://localhost:3000',
-    'https://bookthatboat.com',
-    'https://www.bookthatboat.com',
-    'https://book-that-boat-frontend.vercel.app',
-    'https://book-that-boat-payload-production.up.railway.app',
-    'https://psychic-sniffle-jj7wg675pwgp3pxw7-8081.app.github.dev',
-    process.env.PAYLOAD_PUBLIC_SERVER_URL || '',
-  ],
-  csrf: [
-    'http://localhost:3001',
-    'http://localhost:3000',
-    'https://bookthatboat.com',
-    'https://www.bookthatboat.com',
-    'https://book-that-boat-frontend.vercel.app',
-    'https://book-that-boat-payload-production.up.railway.app',
-    'https://psychic-sniffle-jj7wg675pwgp3pxw7-8081.app.github.dev',
-    process.env.PAYLOAD_PUBLIC_SERVER_URL || '',
-  ],
+  cors: allowedOrigins,
+  csrf: allowedOrigins,
   onInit: async (payload) => {
     if (process.env.PAYMENT_POLLING_ENABLED === 'true') {
       startPaymentPolling(payload)

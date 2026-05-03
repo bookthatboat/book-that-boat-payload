@@ -81,6 +81,7 @@ export const Media: CollectionConfig = {
             // Upload to Vercel Blob
             const blob = await put(file.name, file.data, {
               access: 'public',
+              addRandomSuffix: true,
             })
 
             // Get image dimensions for images

@@ -711,6 +711,15 @@ export const Boats: CollectionConfig = {
     {
       name: 'gallery',
       type: 'array',
+      label: 'Gallery',
+      maxRows: 20,
+      admin: {
+        description:
+          'Bulk upload up to 20 images, then drag thumbnails to reorder. Save the boat after uploading/reordering.',
+        components: {
+          Field: '/components/BoatGalleryField/BoatGalleryField#BoatGalleryField',
+        },
+      },
       fields: [
         {
           name: 'image',
