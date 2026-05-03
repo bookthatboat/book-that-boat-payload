@@ -3188,6 +3188,35 @@ export const Reservations: CollectionConfig = {
 
   hooks: {
     beforeChange: [
+      async ({ data, originalDoc, operation }) => {
+        // Safety guard:
+        // The custom Payment Schedule Manager saves payments correctly through its direct API call,
+        // but the normal Payload page save can sometimes submit an empty/missing payments array.
+        // Without this guard, a normal page save can wipe the existing payment ledger.
+        if (operation !== 'update') return data
+
+        const existingPayments = Array.isArray((originalDoc as any)?.payments)
+          ? (originalDoc as any).payments
+          : []
+
+        if (existingPayments.length === 0) return data
+
+        const incomingPayments = (data as any)?.payments
+
+        const paymentsWereOmitted = incomingPayments === undefined || incomingPayments === null
+        const paymentsWereSubmittedEmpty =
+          Array.isArray(incomingPayments) && incomingPayments.length === 0
+
+        if (paymentsWereOmitted || paymentsWereSubmittedEmpty) {
+          return {
+            ...data,
+            payments: existingPayments,
+          }
+        }
+
+        return data
+      },
+
       async ({ data, operation, originalDoc }) => {
         // Only applies on update where status is changing
         const prevStatus = (originalDoc as any)?.status
