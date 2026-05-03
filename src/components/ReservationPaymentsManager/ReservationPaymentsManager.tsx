@@ -5,6 +5,7 @@ import { useField } from '@payloadcms/ui'
 
 type PaymentMethod = 'Mamo Pay' | 'Bank Transfer' | 'Cash'
 type PaymentStatus =
+  | 'scheduled'
   | 'pending'
   | 'completed'
   | 'failed'
@@ -45,25 +46,23 @@ const money = (value: number): string => {
   return `AED ${Math.max(0, Math.round(value)).toLocaleString()}`
 }
 
-const toDatetimeLocal = (value?: string): string => {
+const toDateInputValue = (value?: string): string => {
   if (!value) return ''
 
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
 
-  const offset = date.getTimezoneOffset()
-  const local = new Date(date.getTime() - offset * 60 * 1000)
-
-  return local.toISOString().slice(0, 16)
+  return date.toISOString().slice(0, 10)
 }
 
-const fromDatetimeLocal = (value: string): string => {
+const fromDateInputValue = (value: string): string => {
   if (!value) return ''
 
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
+  return new Date(`${value}T00:00:00.000Z`).toISOString()
+}
 
-  return date.toISOString()
+const todayInputValue = () => {
+  return new Date().toISOString().slice(0, 10)
 }
 
 const getFeeFields = (amount: number, method?: PaymentMethod) => {
@@ -88,8 +87,10 @@ const getFeeFields = (amount: number, method?: PaymentMethod) => {
 
 const getPaymentStatusLabel = (status?: PaymentStatus): string => {
   switch (status) {
+    case 'scheduled':
+      return 'Scheduled'
     case 'pending':
-      return 'Pending'
+      return 'Awaiting Payment'
     case 'completed':
       return 'Received'
     case 'refunded':
@@ -101,12 +102,16 @@ const getPaymentStatusLabel = (status?: PaymentStatus): string => {
     case 'superseded':
       return 'Superseded'
     default:
-      return 'Pending'
+      return 'Scheduled'
   }
 }
 
 const normaliseStatus = (status?: PaymentStatus): PaymentStatus => {
-  return status || 'pending'
+  return status || 'scheduled'
+}
+
+const isActive = (payment: PaymentRow) => {
+  return payment.status === 'scheduled' || payment.status === 'pending' || payment.status === 'completed'
 }
 
 const styles = {
@@ -130,6 +135,12 @@ const styles = {
   help: {
     margin: '8px 0 0',
     color: 'var(--theme-elevation-500)',
+    fontSize: 13,
+    lineHeight: 1.5,
+  } as React.CSSProperties,
+  warning: {
+    margin: '8px 0 0',
+    color: 'var(--theme-warning-500)',
     fontSize: 13,
     lineHeight: 1.5,
   } as React.CSSProperties,
@@ -223,6 +234,8 @@ const styles = {
 export function ReservationPaymentsManager() {
   const { value: totalPriceValue } = useField<number>({ path: 'totalPrice' })
   const { value: methodValue } = useField<PaymentMethod>({ path: 'method' })
+  const { value: paymentPlanValue } = useField<string>({ path: 'paymentMethod' })
+  const { value: startTimeValue } = useField<string>({ path: 'startTime' })
   const { value: paymentsValue, setValue: setPaymentsValue } = useField<PaymentRow[]>({
     path: 'payments',
   })
@@ -233,6 +246,8 @@ export function ReservationPaymentsManager() {
     [paymentsValue],
   )
 
+  const tripStartDate = toDateInputValue(startTimeValue)
+
   const recalculatedPayments = useMemo(() => {
     let runningPaidOrPending = 0
 
@@ -241,10 +256,7 @@ export function ReservationPaymentsManager() {
       const method = payment.method || methodValue || 'Mamo Pay'
       const status = normaliseStatus(payment.status)
 
-      const shouldReduceBalance =
-        status === 'pending' || status === 'completed'
-
-      if (shouldReduceBalance) {
+      if (status === 'scheduled' || status === 'pending' || status === 'completed') {
         runningPaidOrPending += amount
       }
 
@@ -252,8 +264,8 @@ export function ReservationPaymentsManager() {
 
       return {
         ...payment,
-        id: payment.id || `manual-${Date.now()}-${index}`,
-        kind: payment.kind || 'balance',
+        id: payment.id || `payment-${Date.now()}-${index}`,
+        kind: payment.kind || (paymentPlanValue === 'full' ? 'full' : 'balance'),
         amount,
         method,
         status,
@@ -264,29 +276,23 @@ export function ReservationPaymentsManager() {
           status === 'completed'
             ? 'paid'
             : payment.installmentStage ||
-              (method === 'Mamo Pay' ? 'installed_ready_to_be_paid' : 'ready_to_be_installed'),
+              (method === 'Mamo Pay' ? 'ready_to_be_installed' : 'ready_to_be_installed'),
         balance: Math.max(0, totalPrice - runningPaidOrPending),
         ...feeFields,
       }
     })
-  }, [methodValue, payments, totalPrice])
+  }, [methodValue, paymentPlanValue, payments, totalPrice])
 
   const totals = useMemo(() => {
     return recalculatedPayments.reduce(
       (acc, payment) => {
         const amount = toNumber(payment.amount)
 
-        if (payment.status === 'completed') {
-          acc.received += amount
-        }
-
-        if (payment.status === 'pending') {
-          acc.pending += amount
-        }
-
-        if (payment.status === 'refunded') {
-          acc.refunded += amount
-        }
+        if (payment.status === 'completed') acc.received += amount
+        if (payment.status === 'pending') acc.awaiting += amount
+        if (payment.status === 'scheduled') acc.scheduled += amount
+        if (payment.status === 'refunded') acc.refunded += amount
+        if (isActive(payment)) acc.active += amount
 
         acc.mamoFees += toNumber(payment.processingFeeAmount)
 
@@ -294,14 +300,16 @@ export function ReservationPaymentsManager() {
       },
       {
         received: 0,
-        pending: 0,
+        awaiting: 0,
+        scheduled: 0,
         refunded: 0,
+        active: 0,
         mamoFees: 0,
       },
     )
   }, [recalculatedPayments])
 
-  const uncovered = Math.max(0, totalPrice - totals.received - totals.pending)
+  const uncovered = Math.max(0, totalPrice - totals.active)
   const receivedBalance = Math.max(0, totalPrice - totals.received)
 
   const updatePayments = (nextPayments: PaymentRow[]) => {
@@ -319,19 +327,22 @@ export function ReservationPaymentsManager() {
 
       const amount = Math.max(0, Math.round(toNumber(merged.amount)))
       const method = merged.method || 'Mamo Pay'
+      const status = normaliseStatus(merged.status)
       const feeFields = getFeeFields(amount, method)
 
       return {
         ...merged,
         amount,
+        method,
+        status,
         ...feeFields,
         paidAt:
-          merged.status === 'completed'
+          status === 'completed'
             ? merged.paidAt || new Date().toISOString()
-            : merged.status === 'pending'
+            : status === 'scheduled' || status === 'pending'
               ? ''
               : merged.paidAt,
-        installmentStage: merged.status === 'completed' ? 'paid' : merged.installmentStage,
+        installmentStage: status === 'completed' ? 'paid' : merged.installmentStage,
       }
     })
 
@@ -339,25 +350,49 @@ export function ReservationPaymentsManager() {
   }
 
   const addPayment = () => {
-    const amountAlreadyCovered = totals.received + totals.pending
+    const amountAlreadyCovered = totals.active
     const suggestedAmount = Math.max(0, totalPrice - amountAlreadyCovered)
-    const method = methodValue || 'Cash'
+    const method = methodValue || 'Mamo Pay'
     const feeFields = getFeeFields(suggestedAmount, method)
 
     updatePayments([
       ...recalculatedPayments,
       {
-        id: `manual-${Date.now()}`,
-        kind: 'balance',
+        id: `payment-${Date.now()}`,
+        kind: paymentPlanValue === 'full' ? 'full' : 'balance',
         amount: suggestedAmount,
+        method,
+        status: paymentPlanValue === 'full' ? 'pending' : 'scheduled',
+        date: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+        paidAt: '',
+        installmentStage: 'ready_to_be_installed',
+        balance: 0,
+        notes: '',
+        paymentLink: '',
+        paymentLinkId: '',
+        ...feeFields,
+      },
+    ])
+  }
+
+  const createFullPaymentRow = () => {
+    const method = methodValue || 'Mamo Pay'
+    const feeFields = getFeeFields(totalPrice, method)
+
+    updatePayments([
+      {
+        id: `payment-${Date.now()}`,
+        kind: 'full',
+        amount: totalPrice,
         method,
         status: 'pending',
         date: new Date().toISOString(),
         createdAt: new Date().toISOString(),
         paidAt: '',
-        installmentStage: method === 'Mamo Pay' ? 'installed_ready_to_be_paid' : 'ready_to_be_installed',
+        installmentStage: 'ready_to_be_installed',
         balance: 0,
-        notes: '',
+        notes: 'Full payment',
         paymentLink: '',
         paymentLinkId: '',
         ...feeFields,
@@ -383,15 +418,20 @@ export function ReservationPaymentsManager() {
     updatePayments(recalculatedPayments)
   }
 
+  const scheduleWarning =
+    uncovered > 0
+      ? `Payment schedule is short by ${money(uncovered)}. Add another row before moving the reservation to awaiting payment or confirmed.`
+      : ''
+
   return (
     <div style={styles.wrap}>
       <div style={styles.header}>
-        <h3 style={styles.title}>Payment Manager</h3>
+        <h3 style={styles.title}>Payment Schedule Manager</h3>
         <p style={styles.help}>
-          Add multiple payment rows for Mamo Pay, bank transfer, or cash. Use Pending when payment is
-          expected, Received when money has been collected, and Refunded when it has been returned.
-          Historical bookings are read from the existing payment ledger.
+          Build the customer payment schedule here. Scheduled Mamo Pay rows create and email payment
+          links on the due date. Bank Transfer and Cash rows send manual payment instructions.
         </p>
+        {scheduleWarning && <p style={styles.warning}>{scheduleWarning}</p>}
       </div>
 
       <div style={styles.summary}>
@@ -404,8 +444,12 @@ export function ReservationPaymentsManager() {
           <div style={styles.value}>{money(totals.received)}</div>
         </div>
         <div style={styles.card}>
-          <div style={styles.label}>Pending</div>
-          <div style={styles.value}>{money(totals.pending)}</div>
+          <div style={styles.label}>Awaiting payment</div>
+          <div style={styles.value}>{money(totals.awaiting)}</div>
+        </div>
+        <div style={styles.card}>
+          <div style={styles.label}>Scheduled</div>
+          <div style={styles.value}>{money(totals.scheduled)}</div>
         </div>
         <div style={styles.card}>
           <div style={styles.label}>Uncovered balance</div>
@@ -426,8 +470,11 @@ export function ReservationPaymentsManager() {
       </div>
 
       <div style={styles.actions}>
+        <button type="button" onClick={createFullPaymentRow} style={styles.button}>
+          Create full payment row
+        </button>
         <button type="button" onClick={addPayment} style={styles.button}>
-          Add payment row
+          Add scheduled payment row
         </button>
         <button type="button" onClick={syncBalances} style={styles.button}>
           Recalculate balances
@@ -436,15 +483,17 @@ export function ReservationPaymentsManager() {
 
       <div style={styles.tableWrap}>
         {recalculatedPayments.length === 0 ? (
-          <p style={styles.help}>No payment rows yet. Click “Add payment row” to record one.</p>
+          <p style={styles.help}>
+            No payment schedule yet. Click “Create full payment row” or “Add scheduled payment row”.
+          </p>
         ) : (
           <table style={styles.table}>
             <thead>
               <tr>
                 <th style={styles.th}>Amount</th>
+                <th style={styles.th}>Due Date</th>
                 <th style={styles.th}>Method</th>
                 <th style={styles.th}>Status</th>
-                <th style={styles.th}>Date</th>
                 <th style={styles.th}>Fee</th>
                 <th style={styles.th}>Customer Pays</th>
                 <th style={styles.th}>Balance</th>
@@ -477,8 +526,23 @@ export function ReservationPaymentsManager() {
                     </td>
 
                     <td style={styles.td}>
+                      <input
+                        type="date"
+                        min={todayInputValue()}
+                        max={tripStartDate || undefined}
+                        value={toDateInputValue(payment.date)}
+                        onChange={(event) =>
+                          updatePayment(index, {
+                            date: fromDateInputValue(event.target.value),
+                          })
+                        }
+                        style={styles.input}
+                      />
+                    </td>
+
+                    <td style={styles.td}>
                       <select
-                        value={payment.method || methodValue || 'Cash'}
+                        value={payment.method || methodValue || 'Mamo Pay'}
                         onChange={(event) =>
                           updatePayment(index, {
                             method: event.target.value as PaymentMethod,
@@ -508,24 +572,12 @@ export function ReservationPaymentsManager() {
                           }
                           style={styles.input}
                         >
-                          <option value="pending">Pending</option>
+                          <option value="scheduled">Scheduled</option>
+                          <option value="pending">Awaiting Payment</option>
                           <option value="completed">Received</option>
                           <option value="refunded">Refunded</option>
                         </select>
                       )}
-                    </td>
-
-                    <td style={styles.td}>
-                      <input
-                        type="datetime-local"
-                        value={toDatetimeLocal(payment.date)}
-                        onChange={(event) =>
-                          updatePayment(index, {
-                            date: fromDatetimeLocal(event.target.value),
-                          })
-                        }
-                        style={styles.input}
-                      />
                     </td>
 
                     <td style={styles.td}>

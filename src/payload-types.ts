@@ -187,13 +187,16 @@ export interface Reservation {
    * e.g. https://share.google/xxxx
    */
   parkingLocationPin?: string | null;
-  paymentMethod: 'full' | 'deposit_balance' | 'installments';
   /**
-   * Number of installments AFTER the down payment. For Deposit + Balance, the system creates one balance payment due 72 hours before departure.
+   * Choose Pay in Full for a single payment row, or Scheduled Payments / Instalments to build a payment schedule in the Payment Manager.
+   */
+  paymentMethod: 'full' | 'scheduled' | 'deposit_balance' | 'installments';
+  /**
+   * Legacy field. Payment schedule is now managed through Payment Manager.
    */
   numberOfInstallments?: number | null;
   /**
-   * Optional deposit amount. If empty, the system defaults to an even split. For Deposit + Balance, the remaining balance is due 72 hours before departure.
+   * Legacy field. Payment schedule is now managed through Payment Manager.
    */
   downPaymentAmount?: number | null;
   guests?: number | null;
@@ -421,13 +424,9 @@ export interface Reservation {
    */
   totalPrice?: number | null;
   /**
-   * If this is changed after a pending Mamo link has been created, the old pending link will be superseded/deactivated and a new payment row will be created for the outstanding amount.
+   * Default method used when adding new payment rows. The Payment Manager row method is the source of truth for each payment.
    */
   method: 'Mamo Pay' | 'Bank Transfer' | 'Cash';
-  /**
-   * Tick this when the customer has already paid by bank transfer or cash. The generated manual payment row will be marked completed.
-   */
-  manualPaymentReceived?: boolean | null;
   /**
    * Raw payment ledger data. Managed through the Payment Manager table above.
    */
@@ -454,7 +453,7 @@ export interface Reservation {
          */
         customerPayableAmount?: number | null;
         date: string;
-        status: 'pending' | 'completed' | 'refunded' | 'failed' | 'cancelled' | 'superseded';
+        status: 'scheduled' | 'pending' | 'completed' | 'refunded' | 'failed' | 'cancelled' | 'superseded';
         /**
          * Balance remaining after this payment. This is recalculated by the backend when the reservation is saved.
          */
@@ -2557,7 +2556,6 @@ export interface ReservationsSelect<T extends boolean = true> {
   customDiscountAmount?: T;
   totalPrice?: T;
   method?: T;
-  manualPaymentReceived?: T;
   payments?:
     | T
     | {
