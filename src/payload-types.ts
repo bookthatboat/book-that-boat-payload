@@ -420,6 +420,9 @@ export interface Reservation {
    * Calculated based on duration and boat pricing
    */
   totalPrice?: number | null;
+  /**
+   * If this is changed after a pending Mamo link has been created, the old pending link will be superseded/deactivated and a new payment row will be created for the outstanding amount.
+   */
   method: 'Mamo Pay' | 'Bank Transfer' | 'Cash';
   /**
    * Payment ledger for this reservation. Completed payments are kept. Pending unpaid links are superseded and replaced when the total changes.

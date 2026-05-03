@@ -2259,11 +2259,24 @@ const reconcileReservationPaymentsAfterTotalChange = async ({
   const totalPrice = Math.max(0, Math.round(Number(doc.totalPrice || 0)))
   const previousTotalPrice = Math.max(0, Math.round(Number(previousDoc.totalPrice || 0)))
 
-  if (totalPrice === previousTotalPrice) return doc
+  const currentMethod = doc.method || 'Mamo Pay'
+  const previousMethod = previousDoc.method || 'Mamo Pay'
+  const methodChanged = currentMethod !== previousMethod
+  const totalChanged = totalPrice !== previousTotalPrice
 
   const existingPayments = Array.isArray(doc.payments) ? [...doc.payments] : []
 
   if (existingPayments.length === 0) {
+    return doc
+  }
+
+  const activePendingPayments = getActivePendingPayments(existingPayments)
+  const hasActivePendingPayments = activePendingPayments.length > 0
+
+  // Reconcile when either:
+  // - the total changes, or
+  // - the payment method changes while there is an unpaid active pending payment/link.
+  if (!totalChanged && (!methodChanged || !hasActivePendingPayments)) {
     return doc
   }
 
@@ -2272,7 +2285,17 @@ const reconcileReservationPaymentsAfterTotalChange = async ({
   const outstandingAmount = Math.max(0, Math.round(totalPrice - paidAmount))
   const overpaidAmount = Math.max(0, Math.round(paidAmount - totalPrice))
 
-  const reason = `Reservation total changed from AED ${previousTotalPrice} to AED ${totalPrice}.`
+  const reasonParts: string[] = []
+
+  if (totalChanged) {
+    reasonParts.push(`Reservation total changed from AED ${previousTotalPrice} to AED ${totalPrice}.`)
+  }
+
+  if (methodChanged) {
+    reasonParts.push(`Payment method changed from ${previousMethod} to ${currentMethod}.`)
+  }
+
+  const reason = reasonParts.join(' ')
 
   let updatedPayments = await supersedeActivePendingPayments({
     payments: existingPayments,
@@ -3557,9 +3580,13 @@ export const Reservations: CollectionConfig = {
     {
       name: 'method',
       type: 'select',
-      label: 'Payment Method',
+      label: 'Payment Collection Method',
       options: ['Mamo Pay', 'Bank Transfer', 'Cash'],
       required: true,
+      admin: {
+        description:
+          'If this is changed after a pending Mamo link has been created, the old pending link will be superseded/deactivated and a new payment row will be created for the outstanding amount.',
+      },
     },
     {
       name: 'payments',
