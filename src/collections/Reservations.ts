@@ -3898,8 +3898,8 @@ export const Reservations: CollectionConfig = {
       type: 'text',
       label: 'Payment Link ID',
       admin: {
+        hidden: true,
         readOnly: true,
-        condition: (data) => data?.status !== 'pending',
       },
     },
     {
@@ -3907,8 +3907,8 @@ export const Reservations: CollectionConfig = {
       type: 'text',
       label: 'Payment Link',
       admin: {
+        hidden: true,
         readOnly: true,
-        condition: (data) => data?.status !== 'pending',
       },
     },
     {
@@ -3957,25 +3957,17 @@ export const Reservations: CollectionConfig = {
       },
     },
     {
-      name: 'reservationPaymentsManager',
-      type: 'ui',
-      label: 'Payment Manager',
+      name: 'payments',
+      type: 'array',
+      label: 'Payment Schedule Manager',
       admin: {
+        description:
+          'Build and track the reservation payment schedule. Payment links are stored per row.',
+        initCollapsed: false,
         components: {
           Field:
             '/components/ReservationPaymentsManager/ReservationPaymentsManager#ReservationPaymentsManager',
         },
-      },
-    },
-    {
-      name: 'payments',
-      type: 'array',
-      label: 'Payments',
-      admin: {
-        hidden: true,
-        description:
-          'Raw payment ledger data. Managed through the Payment Manager table above.',
-        initCollapsed: true,
       },
       fields: [
         {

@@ -231,13 +231,13 @@ const styles = {
   } as React.CSSProperties,
 }
 
-export function ReservationPaymentsManager() {
+export function ReservationPaymentsManager({ path = 'payments' }: { path?: string }) {
   const { value: totalPriceValue } = useField<number>({ path: 'totalPrice' })
   const { value: methodValue } = useField<PaymentMethod>({ path: 'method' })
   const { value: paymentPlanValue } = useField<string>({ path: 'paymentMethod' })
   const { value: startTimeValue } = useField<string>({ path: 'startTime' })
   const { value: paymentsValue, setValue: setPaymentsValue } = useField<PaymentRow[]>({
-    path: 'payments',
+    path,
   })
 
   const totalPrice = Math.max(0, Math.round(toNumber(totalPriceValue)))
