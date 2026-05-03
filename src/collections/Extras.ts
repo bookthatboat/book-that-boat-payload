@@ -144,8 +144,11 @@ export const Extras: CollectionConfig = {
       name: 'boat',
       type: 'relationship',
       relationTo: 'boats',
-      required: true,
+      required: false,
       hasMany: true,
+      admin: {
+        description: 'Optional. Extras can be created first and assigned to boats later from the Boat edit screen.',
+      },
     },
   ],
 }
