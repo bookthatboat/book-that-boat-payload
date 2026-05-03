@@ -492,7 +492,7 @@ export function ReservationPriceCalculator() {
     }, 0)
 
     const pendingAmount = payments.reduce((sum, payment) => {
-      if (payment?.status !== 'pending' && payment?.status !== 'manual_pending') return sum
+      if (payment?.status !== 'pending') return sum
       return sum + toNumber(payment.amount)
     }, 0)
 
