@@ -110,12 +110,10 @@ const formatDate = (value?: string): string => {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return '-'
 
-  return date.toLocaleString('en-GB', {
+  return date.toLocaleDateString('en-GB', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
   })
 }
 
@@ -639,9 +637,9 @@ export function ReservationPriceCalculator() {
                 <th style={styles.th}>Amount</th>
                 <th style={styles.th}>Fee</th>
                 <th style={styles.th}>Customer Pays</th>
-                <th style={styles.th}>Due / Created</th>
+                <th style={styles.th}>Scheduled Due Date</th>
                 <th style={styles.th}>Status</th>
-                <th style={styles.th}>Paid At</th>
+                <th style={styles.th}>Received Date</th>
                 <th style={styles.th}>Link</th>
                 <th style={styles.th}>Notes</th>
               </tr>
