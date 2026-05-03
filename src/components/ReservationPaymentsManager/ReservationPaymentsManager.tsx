@@ -58,7 +58,8 @@ const toDateInputValue = (value?: string): string => {
 const fromDateInputValue = (value: string): string => {
   if (!value) return ''
 
-  return new Date(`${value}T00:00:00.000Z`).toISOString()
+  // Store date-only values at midday UTC to avoid timezone display shifts.
+  return new Date(`${value}T12:00:00.000Z`).toISOString()
 }
 
 const todayInputValue = () => {

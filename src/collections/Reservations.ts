@@ -2266,15 +2266,16 @@ const normaliseDateOnlyToIso = (value: unknown): string => {
   const raw = String(value)
 
   // date input format: YYYY-MM-DD
+  // Store at midday UTC to avoid date shifting in admin time zones.
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-    return new Date(`${raw}T00:00:00.000Z`).toISOString()
+    return new Date(`${raw}T12:00:00.000Z`).toISOString()
   }
 
   const parsed = new Date(raw)
 
   if (Number.isNaN(parsed.getTime())) return ''
 
-  parsed.setUTCHours(0, 0, 0, 0)
+  parsed.setUTCHours(12, 0, 0, 0)
   return parsed.toISOString()
 }
 
@@ -2509,6 +2510,29 @@ const activateDueScheduledPayments = async (payload: any) => {
   } catch (error) {
     console.error('Error activating due scheduled payments:', error)
   }
+}
+
+const preserveExistingPaymentsIfOmitted = (data: any, originalDoc?: any) => {
+  const originalPayments = Array.isArray(originalDoc?.payments) ? originalDoc.payments : []
+
+  if (originalPayments.length === 0) {
+    return data
+  }
+
+  const incomingPayments = data?.payments
+
+  const paymentsWereOmitted = incomingPayments === undefined || incomingPayments === null
+  const paymentsWereAccidentallyEmptied =
+    Array.isArray(incomingPayments) && incomingPayments.length === 0
+
+  if (paymentsWereOmitted || paymentsWereAccidentallyEmptied) {
+    return {
+      ...data,
+      payments: originalPayments,
+    }
+  }
+
+  return data
 }
 
 const normaliseManualPaymentRowsForSave = (data: any, originalDoc?: any) => {
@@ -3383,7 +3407,7 @@ export const Reservations: CollectionConfig = {
         try {
           const calculatedData = await calculateReservationTotalForSave({
             req,
-            data,
+            data: preserveExistingPaymentsIfOmitted(data, originalDoc),
             originalDoc,
           })
 
@@ -3399,7 +3423,10 @@ export const Reservations: CollectionConfig = {
         } catch (error) {
           console.error('Error calculating final reservation total:', error)
 
-          const normalisedData = normaliseManualPaymentRowsForSave(data, originalDoc)
+          const normalisedData = normaliseManualPaymentRowsForSave(
+            preserveExistingPaymentsIfOmitted(data, originalDoc),
+            originalDoc,
+          )
 
           validateReservationPaymentSchedule({
             data: normalisedData,
@@ -3957,8 +3984,9 @@ export const Reservations: CollectionConfig = {
       defaultValue: 'Mamo Pay',
       required: true,
       admin: {
+        hidden: true,
         description:
-          'Default method used when adding new payment rows. The Payment Manager row method is the source of truth for each payment.',
+          'Legacy/default method. The Payment Manager row method is the source of truth for each payment.',
       },
     },
     {
