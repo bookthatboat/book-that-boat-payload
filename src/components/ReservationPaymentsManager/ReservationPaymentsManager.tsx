@@ -405,7 +405,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
         status,
         ...feeFields,
         paidAt:
-          status === 'completed'
+          status === 'completed' || status === 'refunded'
             ? merged.paidAt || new Date().toISOString()
             : status === 'scheduled' || status === 'pending'
               ? ''
@@ -583,7 +583,8 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
             <thead>
               <tr>
                 <th style={styles.th}>Amount</th>
-                <th style={styles.th}>Due Date</th>
+                <th style={styles.th}>Scheduled Due Date</th>
+                <th style={styles.th}>Received Date</th>
                 <th style={styles.th}>Method</th>
                 <th style={styles.th}>Status</th>
                 <th style={styles.th}>Fee</th>
@@ -620,7 +621,11 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
                     <td style={styles.td}>
                       <input
                         type="date"
-                        min={todayInputValue()}
+                        min={
+                          payment.status === 'scheduled' || payment.status === 'pending'
+                            ? todayInputValue()
+                            : undefined
+                        }
                         max={tripStartDate || undefined}
                         value={toDateInputValue(payment.date)}
                         onChange={(event) =>
@@ -630,6 +635,34 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
                         }
                         style={styles.input}
                       />
+                      <div style={styles.small}>Planned payment date</div>
+                    </td>
+
+                    <td style={styles.td}>
+                      <input
+                        type="date"
+                        value={toDateInputValue(payment.paidAt)}
+                        disabled={payment.status !== 'completed' && payment.status !== 'refunded'}
+                        onChange={(event) =>
+                          updatePayment(index, {
+                            paidAt: fromDateInputValue(event.target.value),
+                          })
+                        }
+                        style={{
+                          ...styles.input,
+                          opacity:
+                            payment.status !== 'completed' && payment.status !== 'refunded'
+                              ? 0.6
+                              : 1,
+                        }}
+                      />
+                      <div style={styles.small}>
+                        {payment.status === 'completed'
+                          ? 'Date received'
+                          : payment.status === 'refunded'
+                            ? 'Date refunded'
+                            : 'Enabled once received/refunded'}
+                      </div>
                     </td>
 
                     <td style={styles.td}>

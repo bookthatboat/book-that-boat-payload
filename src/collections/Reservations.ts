@@ -2332,11 +2332,12 @@ const validateReservationPaymentSchedule = ({
 
     const dueDate = startOfUtcDay(new Date(dueIso))
 
-    // For imported/historical received/refunded rows, allow old dates.
-    const shouldValidateAgainstToday = isCreate || isPaymentPendingOrScheduled(payment)
+    // For received/refunded/historical rows, allow old due dates.
+    // Only future-facing scheduled/awaiting payment rows must not be before today.
+    const shouldValidateAgainstToday = isPaymentPendingOrScheduled(payment)
 
     if (shouldValidateAgainstToday && dueDate < today) {
-      throw new Error(`Payment row ${rowNumber}: due date cannot be before today.`)
+      throw new Error(`Payment row ${rowNumber}: due date cannot be before today unless the row is already Received or Refunded.`)
     }
 
     if (tripStart && dueDate > tripStart) {
@@ -2560,12 +2561,15 @@ const normaliseManualPaymentRowsForSave = (data: any, originalDoc?: any) => {
       status,
       date: payment?.date || now,
       createdAt: payment?.createdAt || now,
-      paidAt: status === 'completed' ? payment?.paidAt || now : payment?.paidAt || '',
+      paidAt:
+        status === 'completed' || status === 'refunded'
+          ? payment?.paidAt || now
+          : payment?.paidAt || '',
       installmentStage:
         status === 'completed'
           ? 'paid'
           : payment?.installmentStage ||
-            (method === 'Mamo Pay' ? 'installed_ready_to_be_paid' : 'ready_to_be_installed'),
+            (method === 'Mamo Pay' ? 'ready_to_be_installed' : 'ready_to_be_installed'),
       balance: nextBalance,
       ...feeFields,
       notes: payment?.notes || '',
