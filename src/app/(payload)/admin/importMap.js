@@ -1,3 +1,4 @@
+import { ReservationPriceCalculator as ReservationPriceCalculator_6b9447bf0625c785b684c501d6ec1945 } from '../../../components/ReservationPriceCalculator/ReservationPriceCalculator'
 import { BoatExtrasManager as BoatExtrasManager_24e4d350c7ddbdf532ae72c002d450bc } from '../../../components/BoatExtrasManager/BoatExtrasManager'
 import { BoatGalleryField as BoatGalleryField_1b5d7a1be6a084f613ed10fa04ab9176 } from '../../../components/BoatGalleryField/BoatGalleryField'
 import { RscEntryLexicalCell as RscEntryLexicalCell_44fe37237e0ebf4470c9990d8cb7b07e } from '@payloadcms/richtext-lexical/rsc'
@@ -27,6 +28,7 @@ import { default as default_a1721f8c55cfd0d2c0268d96bf95ac92 } from '../../../co
 import { CollectionCards as CollectionCards_ab83ff7e88da8d3530831f296ec4756a } from '@payloadcms/ui/rsc'
 
 export const importMap = {
+  "/components/ReservationPriceCalculator/ReservationPriceCalculator#ReservationPriceCalculator": ReservationPriceCalculator_6b9447bf0625c785b684c501d6ec1945,
   "/components/BoatExtrasManager/BoatExtrasManager#BoatExtrasManager": BoatExtrasManager_24e4d350c7ddbdf532ae72c002d450bc,
   "/components/BoatGalleryField/BoatGalleryField#BoatGalleryField": BoatGalleryField_1b5d7a1be6a084f613ed10fa04ab9176,
   "@payloadcms/richtext-lexical/rsc#RscEntryLexicalCell": RscEntryLexicalCell_44fe37237e0ebf4470c9990d8cb7b07e,

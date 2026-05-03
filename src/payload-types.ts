@@ -187,13 +187,13 @@ export interface Reservation {
    * e.g. https://share.google/xxxx
    */
   parkingLocationPin?: string | null;
-  paymentMethod: 'full' | 'installments';
+  paymentMethod: 'full' | 'deposit_balance' | 'installments';
   /**
-   * Number of installments AFTER the down payment (e.g. 1, 2, 3, 4)
+   * Number of installments AFTER the down payment. For Deposit + Balance, the system creates one balance payment due 72 hours before departure.
    */
   numberOfInstallments?: number | null;
   /**
-   * Optional. If empty, the system defaults to an even split across (installments + 1).
+   * Optional deposit amount. If empty, the system defaults to an even split. For Deposit + Balance, the remaining balance is due 72 hours before departure.
    */
   downPaymentAmount?: number | null;
   guests?: number | null;
@@ -413,25 +413,41 @@ export interface Reservation {
   paymentLinkId?: string | null;
   paymentLink?: string | null;
   /**
+   * Optional manual discount amount, e.g. enter 100 to take AED 100 off the reservation total.
+   */
+  customDiscountAmount?: number | null;
+  /**
    * Calculated based on duration and boat pricing
    */
   totalPrice?: number | null;
   method: 'Mamo Pay' | 'Bank Transfer' | 'Cash';
   /**
-   * Instalment of all payments made for this reservation
+   * Payment ledger for this reservation. Completed payments are kept. Pending unpaid links are superseded and replaced when the total changes.
    */
   payments?:
     | {
         id?: string | null;
-        kind?: ('full' | 'downpayment' | 'installment') | null;
+        kind?: ('full' | 'downpayment' | 'installment' | 'balance' | 'adjustment') | null;
         installmentStage?: ('paid' | 'ready_to_be_installed' | 'installed_ready_to_be_paid') | null;
         createdAt?: string | null;
         installedAt?: string | null;
         paidAt?: string | null;
         amount: number;
         method: 'Mamo Pay' | 'Bank Transfer' | 'Cash';
+        /**
+         * Mamo Pay processing fee percentage. Zero for bank transfer and cash.
+         */
+        processingFeePercentage?: number | null;
+        /**
+         * Fee amount added to Mamo Pay links.
+         */
+        processingFeeAmount?: number | null;
+        /**
+         * Payment amount plus processing fee where applicable.
+         */
+        customerPayableAmount?: number | null;
         date: string;
-        status: 'pending' | 'completed' | 'failed' | 'refunded';
+        status: 'pending' | 'manual_pending' | 'completed' | 'failed' | 'refunded' | 'cancelled' | 'superseded';
         /**
          * Balance remaining after this payment
          */
@@ -469,11 +485,11 @@ export interface Reservation {
       }[]
     | null;
   /**
-   * Applied coupon for this reservation (set from frontend)
+   * Optional. Select a coupon to apply its discount to the reservation total.
    */
   coupon?: (string | null) | Coupon;
   /**
-   * Coupon code snapshot at time of booking
+   * Coupon code snapshot saved when the reservation is calculated.
    */
   couponCode?: string | null;
   updatedAt: string;
@@ -2531,6 +2547,7 @@ export interface ReservationsSelect<T extends boolean = true> {
   status?: T;
   paymentLinkId?: T;
   paymentLink?: T;
+  customDiscountAmount?: T;
   totalPrice?: T;
   method?: T;
   payments?:
@@ -2544,6 +2561,9 @@ export interface ReservationsSelect<T extends boolean = true> {
         paidAt?: T;
         amount?: T;
         method?: T;
+        processingFeePercentage?: T;
+        processingFeeAmount?: T;
+        customerPayableAmount?: T;
         date?: T;
         status?: T;
         balance?: T;
