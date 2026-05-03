@@ -2245,6 +2245,71 @@ const supersedeActivePendingPayments = async ({
   return superseded
 }
 
+const normaliseManualPaymentRowsForSave = (data: any, originalDoc?: any) => {
+  const payments = Array.isArray(data?.payments)
+    ? data.payments
+    : Array.isArray(originalDoc?.payments)
+      ? originalDoc.payments
+      : []
+
+  if (!Array.isArray(payments) || payments.length === 0) {
+    return data
+  }
+
+  const totalPrice = Math.max(0, Math.round(Number(data?.totalPrice ?? originalDoc?.totalPrice ?? 0)))
+  let runningPaidOrPending = 0
+  const now = new Date().toISOString()
+
+  data.payments = payments.map((payment: any, index: number) => {
+    const amount = Math.max(0, Number(payment?.amount || 0))
+    const method = payment?.method || data?.method || originalDoc?.method || 'Mamo Pay'
+    const status = payment?.status || (method === 'Mamo Pay' ? 'pending' : 'manual_pending')
+    const kind =
+      payment?.kind ||
+      (status === 'completed'
+        ? 'full'
+        : method === 'Mamo Pay'
+          ? 'full'
+          : 'balance')
+
+    const shouldCountAgainstBalance =
+      status === 'completed' || status === 'pending' || status === 'manual_pending'
+
+    if (shouldCountAgainstBalance) {
+      runningPaidOrPending += amount
+    }
+
+    const nextBalance = Math.max(0, Math.round(totalPrice - runningPaidOrPending))
+
+    const feeFields = getPaymentFeeFields({
+      amount,
+      method,
+    })
+
+    return {
+      ...payment,
+      id: payment?.id || `${kind}-${Date.now()}-${index}`,
+      kind,
+      amount,
+      method,
+      status,
+      date: payment?.date || now,
+      createdAt: payment?.createdAt || now,
+      paidAt: status === 'completed' ? payment?.paidAt || now : payment?.paidAt || '',
+      installmentStage:
+        status === 'completed'
+          ? 'paid'
+          : payment?.installmentStage ||
+            (method === 'Mamo Pay' ? 'installed_ready_to_be_paid' : 'ready_to_be_installed'),
+      balance: nextBalance,
+      ...feeFields,
+      notes: payment?.notes || '',
+    }
+  })
+
+  return data
+}
+
 const reconcileReservationPaymentsAfterTotalChange = async ({
   doc,
   previousDoc,
@@ -3038,14 +3103,16 @@ export const Reservations: CollectionConfig = {
       },
       async ({ data, originalDoc, req }) => {
         try {
-          return await calculateReservationTotalForSave({
+          const calculatedData = await calculateReservationTotalForSave({
             req,
             data,
             originalDoc,
           })
+
+          return normaliseManualPaymentRowsForSave(calculatedData, originalDoc)
         } catch (error) {
           console.error('Error calculating final reservation total:', error)
-          return data
+          return normaliseManualPaymentRowsForSave(data, originalDoc)
         }
       },
     ],
@@ -3733,8 +3800,10 @@ export const Reservations: CollectionConfig = {
           name: 'balance',
           type: 'number',
           label: 'Remaining Balance',
+          defaultValue: 0,
+          min: 0,
           admin: {
-            description: 'Balance remaining after this payment',
+            description: 'Balance remaining after this payment. This is recalculated by the backend when the reservation is saved.',
             readOnly: true,
           },
         },

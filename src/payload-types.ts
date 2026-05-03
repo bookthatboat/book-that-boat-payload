@@ -456,7 +456,7 @@ export interface Reservation {
         date: string;
         status: 'pending' | 'manual_pending' | 'completed' | 'failed' | 'refunded' | 'cancelled' | 'superseded';
         /**
-         * Balance remaining after this payment
+         * Balance remaining after this payment. This is recalculated by the backend when the reservation is saved.
          */
         balance?: number | null;
         paymentLink?: string | null;
