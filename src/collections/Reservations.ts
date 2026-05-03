@@ -124,7 +124,7 @@ const withWriteConflictRetry = async <T>(fn: () => Promise<T>, retries = 4) => {
 
 type InstallmentStage = 'paid' | 'ready_to_be_installed' | 'installed_ready_to_be_paid'
 type PaymentKind = 'full' | 'downpayment' | 'installment' | 'balance' | 'adjustment'
-type PaymentStatus = 'pending' | 'completed' | 'failed' | 'refunded' | 'cancelled' | 'superseded'
+type PaymentStatus = 'scheduled' | 'pending' | 'completed' | 'failed' | 'refunded' | 'cancelled' | 'superseded'
 
 const MAMO_PROCESSING_FEE_PERCENTAGE = 4
 
@@ -162,9 +162,8 @@ interface Reservation {
   startTime: Date | string
   endTime: Date | string
   totalPrice: number
-  paymentMethod?: 'full' | 'installments' | 'deposit_balance' | 'custom_schedule'
+  paymentMethod?: 'full' | 'scheduled' | 'installments' | 'deposit_balance' | 'custom_schedule'
   method?: 'Mamo Pay' | 'Bank Transfer' | 'Cash'
-  manualPaymentReceived?: boolean
   payments?: Array<{
     id?: string
     kind?: PaymentKind
@@ -310,8 +309,9 @@ export const startPaymentPolling = (payload: any) => {
   // TIP: set TZ=Asia/Dubai on your server/process if you want this to align with Dubai time.
   try {
     void checkDueInstallments(payload)
+    void activateDueScheduledPayments(payload)
   } catch (e) {
-    console.error('Error running initial installment scheduler:', e)
+    console.error('Error running initial payment scheduler:', e)
   }
 
   // Clear any existing daily scheduler timers
@@ -328,7 +328,10 @@ export const startPaymentPolling = (payload: any) => {
   const schedulerMinute = Number(process.env.INSTALLMENT_SCHEDULER_MINUTE ?? 0)
 
   jobs.installmentSchedulerTimeout = scheduleDailyAt(
-    () => checkDueInstallments(payload),
+    async () => {
+      await checkDueInstallments(payload)
+      await activateDueScheduledPayments(payload)
+    },
     Number.isFinite(schedulerHour) ? schedulerHour : 9,
     Number.isFinite(schedulerMinute) ? schedulerMinute : 0,
   )
@@ -2245,6 +2248,268 @@ const supersedeActivePendingPayments = async ({
   return superseded
 }
 
+const isPaymentActiveForSchedule = (payment: any) => {
+  return ['scheduled', 'pending', 'completed'].includes(payment?.status)
+}
+
+const isPaymentReceived = (payment: any) => {
+  return payment?.status === 'completed'
+}
+
+const isPaymentPendingOrScheduled = (payment: any) => {
+  return payment?.status === 'scheduled' || payment?.status === 'pending'
+}
+
+const normaliseDateOnlyToIso = (value: unknown): string => {
+  if (!value) return ''
+
+  const raw = String(value)
+
+  // date input format: YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return new Date(`${raw}T00:00:00.000Z`).toISOString()
+  }
+
+  const parsed = new Date(raw)
+
+  if (Number.isNaN(parsed.getTime())) return ''
+
+  parsed.setUTCHours(0, 0, 0, 0)
+  return parsed.toISOString()
+}
+
+const startOfUtcDay = (value: Date) => {
+  const copy = new Date(value)
+  copy.setUTCHours(0, 0, 0, 0)
+  return copy
+}
+
+const validateReservationPaymentSchedule = ({
+  data,
+  originalDoc,
+  operation,
+}: {
+  data: any
+  originalDoc?: any
+  operation?: string
+}) => {
+  const payments = Array.isArray(data?.payments)
+    ? data.payments
+    : Array.isArray(originalDoc?.payments)
+      ? originalDoc.payments
+      : []
+
+  if (!Array.isArray(payments) || payments.length === 0) {
+    return
+  }
+
+  const startTimeValue = data?.startTime || originalDoc?.startTime
+  const tripStart = startTimeValue ? startOfUtcDay(new Date(startTimeValue)) : null
+  const today = startOfUtcDay(new Date())
+
+  const isCreate = operation === 'create'
+
+  let activeScheduledTotal = 0
+
+  payments.forEach((payment: any, index: number) => {
+    const rowNumber = index + 1
+    const amount = Number(payment?.amount || 0)
+
+    if (amount <= 0) {
+      throw new Error(`Payment row ${rowNumber}: amount must be greater than 0.`)
+    }
+
+    if (isPaymentActiveForSchedule(payment)) {
+      activeScheduledTotal += amount
+    }
+
+    const dueIso = normaliseDateOnlyToIso(payment?.date)
+    if (!dueIso) {
+      throw new Error(`Payment row ${rowNumber}: due date is required.`)
+    }
+
+    payment.date = dueIso
+
+    const dueDate = startOfUtcDay(new Date(dueIso))
+
+    // For imported/historical received/refunded rows, allow old dates.
+    const shouldValidateAgainstToday = isCreate || isPaymentPendingOrScheduled(payment)
+
+    if (shouldValidateAgainstToday && dueDate < today) {
+      throw new Error(`Payment row ${rowNumber}: due date cannot be before today.`)
+    }
+
+    if (tripStart && dueDate > tripStart) {
+      throw new Error(`Payment row ${rowNumber}: due date cannot be after the trip start date.`)
+    }
+  })
+
+  const totalPrice = Number(data?.totalPrice ?? originalDoc?.totalPrice ?? 0)
+  const nextStatus = data?.status || originalDoc?.status
+
+  const mustHaveFullSchedule = ['awaiting payment', 'confirmed'].includes(nextStatus)
+
+  if (mustHaveFullSchedule && Math.round(activeScheduledTotal) < Math.round(totalPrice)) {
+    throw new Error(
+      `Payment schedule does not cover the reservation total. Scheduled/received total is AED ${Math.round(
+        activeScheduledTotal,
+      ).toLocaleString()}, reservation total is AED ${Math.round(totalPrice).toLocaleString()}.`,
+    )
+  }
+
+  if (data?.paymentMethod === 'full') {
+    const activeRows = payments.filter(isPaymentActiveForSchedule)
+
+    if (activeRows.length > 1) {
+      throw new Error('Payment Plan is Pay in Full, so only one active payment row is allowed.')
+    }
+  }
+}
+
+const sendScheduledManualPaymentEmail = async ({
+  reservation,
+  payment,
+}: {
+  reservation: Reservation
+  payment: any
+}) => {
+  if (!reservation.guestEmail) return
+
+  const subject = `Book That Boat - Payment Due #${reservation.transactionId || reservation.id}`
+
+  const methodText =
+    payment.method === 'Bank Transfer'
+      ? 'Please arrange the bank transfer using the details provided by the Book That Boat team.'
+      : payment.method === 'Cash'
+        ? 'Your cash payment is now due. Please coordinate with the Book That Boat team.'
+        : 'Your payment is now due.'
+
+  await sendEmail(
+    reservation.guestEmail,
+    subject,
+    `
+      <h2>Payment Due</h2>
+      <p>Dear ${reservation.guestName || 'Guest'},</p>
+      <p>A payment is now due for your Book That Boat reservation.</p>
+      <p><strong>Amount:</strong> AED ${Math.round(Number(payment.amount || 0)).toLocaleString()}</p>
+      <p><strong>Payment method:</strong> ${payment.method}</p>
+      <p>${methodText}</p>
+    `,
+  )
+}
+
+const activateDueScheduledPayments = async (payload: any) => {
+  try {
+    const now = new Date()
+    const today = startOfUtcDay(now)
+
+    const reservations = await payload.find({
+      collection: 'reservations',
+      where: {
+        'payments.status': {
+          equals: 'scheduled',
+        },
+      },
+      depth: 2,
+      limit: 100,
+      overrideAccess: true,
+    })
+
+    for (const reservation of reservations.docs as Reservation[]) {
+      const payments = Array.isArray(reservation.payments) ? [...reservation.payments] : []
+      let changed = false
+      let latestPaymentLink = ''
+      let latestPaymentLinkId = ''
+
+      const boatId = typeof reservation.boat === 'object' ? reservation.boat.id : reservation.boat
+      let boat: Boat | null = null
+
+      for (let index = 0; index < payments.length; index++) {
+        const payment = payments[index]
+
+        if (payment?.status !== 'scheduled') continue
+
+        const dueDate = payment.date ? startOfUtcDay(new Date(payment.date)) : null
+
+        if (!dueDate || Number.isNaN(dueDate.getTime()) || dueDate > today) continue
+
+        if (payment.method === 'Mamo Pay') {
+          if (!boat && boatId) {
+            boat = (await payload.findByID({
+              collection: 'boats',
+              id: boatId,
+              depth: 2,
+              overrideAccess: true,
+            })) as unknown as Boat
+          }
+
+          if (boat) {
+            const user = buildUserFromReservation(reservation)
+
+            const paymentReservation = {
+              ...reservation,
+              totalPrice: Number(payment.amount || 0),
+            } as Reservation
+
+            const link = await createMamoPaymentLink(paymentReservation, boat, user)
+
+            payments[index] = {
+              ...payment,
+              status: 'pending',
+              installedAt: now.toISOString(),
+              paymentLink: link?.url || payment.paymentLink || '',
+              paymentLinkId: link?.id || payment.paymentLinkId || '',
+              notes: `${payment.notes || ''}${payment.notes ? '\n' : ''}Payment link created automatically on due date.`,
+            }
+
+            latestPaymentLink = link?.url || latestPaymentLink
+            latestPaymentLinkId = link?.id || latestPaymentLinkId
+          }
+        } else {
+          payments[index] = {
+            ...payment,
+            status: 'pending',
+            installedAt: now.toISOString(),
+            notes: `${payment.notes || ''}${payment.notes ? '\n' : ''}Manual payment request activated on due date.`,
+          }
+
+          await sendScheduledManualPaymentEmail({
+            reservation,
+            payment: payments[index],
+          })
+        }
+
+        changed = true
+      }
+
+      if (changed) {
+        await withWriteConflictRetry(() =>
+          payload.update({
+            collection: 'reservations',
+            id: reservation.id,
+            data: {
+              payments,
+              ...(latestPaymentLink
+                ? {
+                    paymentLink: latestPaymentLink,
+                    paymentLinkId: latestPaymentLinkId,
+                  }
+                : {}),
+            },
+            overrideAccess: true,
+            context: {
+              skipPaymentReconciliation: true,
+              skipBalancePaymentLink: true,
+            },
+          }),
+        )
+      }
+    }
+  } catch (error) {
+    console.error('Error activating due scheduled payments:', error)
+  }
+}
+
 const normaliseManualPaymentRowsForSave = (data: any, originalDoc?: any) => {
   const payments = Array.isArray(data?.payments)
     ? data.payments
@@ -3110,7 +3375,7 @@ export const Reservations: CollectionConfig = {
           return data
         }
       },
-      async ({ data, originalDoc, req }) => {
+      async ({ data, originalDoc, req, operation }) => {
         try {
           const calculatedData = await calculateReservationTotalForSave({
             req,
@@ -3118,10 +3383,27 @@ export const Reservations: CollectionConfig = {
             originalDoc,
           })
 
-          return normaliseManualPaymentRowsForSave(calculatedData, originalDoc)
+          const normalisedData = normaliseManualPaymentRowsForSave(calculatedData, originalDoc)
+
+          validateReservationPaymentSchedule({
+            data: normalisedData,
+            originalDoc,
+            operation,
+          })
+
+          return normalisedData
         } catch (error) {
           console.error('Error calculating final reservation total:', error)
-          return normaliseManualPaymentRowsForSave(data, originalDoc)
+
+          const normalisedData = normaliseManualPaymentRowsForSave(data, originalDoc)
+
+          validateReservationPaymentSchedule({
+            data: normalisedData,
+            originalDoc,
+            operation,
+          })
+
+          return normalisedData
         }
       },
     ],
@@ -3495,14 +3777,19 @@ export const Reservations: CollectionConfig = {
       type: 'select',
       label: 'Payment Plan',
       options: [
-        { label: 'Full Payment Now', value: 'full' },
-        { label: 'Deposit + Balance', value: 'deposit_balance' },
-        { label: 'Custom Installments', value: 'installments' },
+        { label: 'Pay in Full', value: 'full' },
+        { label: 'Scheduled Payments / Instalments', value: 'scheduled' },
+
+        // Legacy values kept so old reservations continue to render correctly.
+        { label: 'Legacy: Deposit + Balance', value: 'deposit_balance' },
+        { label: 'Legacy: Custom Installments', value: 'installments' },
       ],
       defaultValue: 'full',
       required: true,
       admin: {
         position: 'sidebar',
+        description:
+          'Choose Pay in Full for a single payment row, or Scheduled Payments / Instalments to build a payment schedule in the Payment Manager.',
       },
     },
     {
@@ -3512,9 +3799,10 @@ export const Reservations: CollectionConfig = {
       required: false,
       defaultValue: 3,
       admin: {
+        hidden: true,
         position: 'sidebar',
         condition: (data) => data?.paymentMethod === 'installments',
-        description: 'Number of installments AFTER the down payment. For Deposit + Balance, the system creates one balance payment due 72 hours before departure.',
+        description: 'Legacy field. Payment schedule is now managed through Payment Manager.',
       },
     },
     {
@@ -3523,10 +3811,11 @@ export const Reservations: CollectionConfig = {
       label: 'Down Payment Amount (AED)',
       required: false,
       admin: {
+        hidden: true,
         position: 'sidebar',
         condition: (data) => data?.paymentMethod === 'installments' || data?.paymentMethod === 'deposit_balance',
         description:
-          'Optional deposit amount. If empty, the system defaults to an even split. For Deposit + Balance, the remaining balance is due 72 hours before departure.',
+          'Legacy field. Payment schedule is now managed through Payment Manager.',
       },
     },
 
@@ -3659,23 +3948,12 @@ export const Reservations: CollectionConfig = {
     {
       name: 'method',
       type: 'select',
-      label: 'Payment Collection Method',
+      label: 'Default Payment Method',
       options: ['Mamo Pay', 'Bank Transfer', 'Cash'],
       required: true,
       admin: {
         description:
-          'If this is changed after a pending Mamo link has been created, the old pending link will be superseded/deactivated and a new payment row will be created for the outstanding amount.',
-      },
-    },
-    {
-      name: 'manualPaymentReceived',
-      type: 'checkbox',
-      label: 'Manual payment already received',
-      defaultValue: false,
-      admin: {
-        condition: (data) => data?.method === 'Bank Transfer' || data?.method === 'Cash',
-        description:
-          'Tick this when the customer has already paid by bank transfer or cash. The generated manual payment row will be marked completed.',
+          'Default method used when adding new payment rows. The Payment Manager row method is the source of truth for each payment.',
       },
     },
     {
@@ -3793,7 +4071,7 @@ export const Reservations: CollectionConfig = {
         {
           name: 'date',
           type: 'date',
-          label: 'Payment Date',
+          label: 'Due Date',
           required: true,
           admin: {
             date: {
@@ -3806,7 +4084,8 @@ export const Reservations: CollectionConfig = {
           type: 'select',
           label: 'Payment Status',
           options: [
-            { label: 'Pending', value: 'pending' },
+            { label: 'Scheduled', value: 'scheduled' },
+            { label: 'Awaiting Payment', value: 'pending' },
             { label: 'Received', value: 'completed' },
             { label: 'Refunded', value: 'refunded' },
             { label: 'Failed', value: 'failed' },

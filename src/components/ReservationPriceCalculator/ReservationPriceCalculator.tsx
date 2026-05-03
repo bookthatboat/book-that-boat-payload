@@ -492,7 +492,7 @@ export function ReservationPriceCalculator() {
     }, 0)
 
     const pendingAmount = payments.reduce((sum, payment) => {
-      if (payment?.status !== 'pending') return sum
+      if (payment?.status !== 'pending' && payment?.status !== 'scheduled') return sum
       return sum + toNumber(payment.amount)
     }, 0)
 
@@ -595,7 +595,7 @@ export function ReservationPriceCalculator() {
         </div>
 
         <div style={styles.card}>
-          <div style={styles.label}>Active pending</div>
+          <div style={styles.label}>Pending / scheduled</div>
           <div style={styles.value}>{money(calculation.pendingAmount)}</div>
         </div>
 
@@ -622,7 +622,7 @@ export function ReservationPriceCalculator() {
 
       <div style={styles.total}>
         Final total: {money(calculation.finalTotal)} | Paid: {money(calculation.paidAmount)} |
-        Active pending: {money(calculation.pendingAmount)}
+        Pending / scheduled: {money(calculation.pendingAmount)}
       </div>
 
       <div style={styles.tableWrap}>
