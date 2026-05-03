@@ -549,6 +549,8 @@ export function ReservationPriceCalculator() {
         <p style={styles.help}>
           This preview updates when the boat, time, extras, additional items, coupon, or custom
           discount changes. The backend recalculates and reconciles payment links again on save.
+          If the payment collection method changes, unpaid pending payment rows are superseded and
+          replaced with the correct new payment method.
         </p>
       </div>
 
