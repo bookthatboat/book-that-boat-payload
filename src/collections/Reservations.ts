@@ -164,6 +164,7 @@ interface Reservation {
   totalPrice: number
   paymentMethod?: 'full' | 'installments' | 'deposit_balance' | 'custom_schedule'
   method?: 'Mamo Pay' | 'Bank Transfer' | 'Cash'
+  manualPaymentReceived?: boolean
   payments?: Array<{
     id?: string
     kind?: PaymentKind
@@ -2265,18 +2266,16 @@ const reconcileReservationPaymentsAfterTotalChange = async ({
   const totalChanged = totalPrice !== previousTotalPrice
 
   const existingPayments = Array.isArray(doc.payments) ? [...doc.payments] : []
-
-  if (existingPayments.length === 0) {
-    return doc
-  }
+  const hasTopLevelPaymentLink = Boolean(doc.paymentLinkId || doc.paymentLink)
 
   const activePendingPayments = getActivePendingPayments(existingPayments)
   const hasActivePendingPayments = activePendingPayments.length > 0
 
   // Reconcile when either:
   // - the total changes, or
-  // - the payment method changes while there is an unpaid active pending payment/link.
-  if (!totalChanged && (!methodChanged || !hasActivePendingPayments)) {
+  // - the payment method changes while there is an unpaid active pending payment/link,
+  // - or the reservation still has an old top-level payment link from a previous Mamo request.
+  if (!totalChanged && (!methodChanged || (!hasActivePendingPayments && !hasTopLevelPaymentLink))) {
     return doc
   }
 
@@ -2304,6 +2303,10 @@ const reconcileReservationPaymentsAfterTotalChange = async ({
 
   let topLevelPaymentLink = ''
   let topLevelPaymentLinkId = ''
+
+  if (hasTopLevelPaymentLink && methodChanged && previousMethod === 'Mamo Pay') {
+    await deleteMamoPaymentLink(doc.paymentLinkId)
+  }
 
   if (outstandingAmount > 0) {
     const method = doc.method || 'Mamo Pay'
@@ -3586,6 +3589,17 @@ export const Reservations: CollectionConfig = {
       admin: {
         description:
           'If this is changed after a pending Mamo link has been created, the old pending link will be superseded/deactivated and a new payment row will be created for the outstanding amount.',
+      },
+    },
+    {
+      name: 'manualPaymentReceived',
+      type: 'checkbox',
+      label: 'Manual payment already received',
+      defaultValue: false,
+      admin: {
+        condition: (data) => data?.method === 'Bank Transfer' || data?.method === 'Cash',
+        description:
+          'Tick this when the customer has already paid by bank transfer or cash. The generated manual payment row will be marked completed.',
       },
     },
     {

@@ -48,6 +48,7 @@ type PaymentRow = {
   method?: string
   date?: string
   status?: string
+  installmentStage?: string
   paidAt?: string
   balance?: number
   paymentLink?: string
@@ -485,7 +486,8 @@ export function ReservationPriceCalculator() {
     const finalTotal = Math.max(0, subtotalBeforeDiscount - totalDiscount)
 
     const paidAmount = payments.reduce((sum, payment) => {
-      if (payment?.status !== 'completed') return sum
+      const isCompleted = payment?.status === 'completed' || payment?.installmentStage === 'paid'
+      if (!isCompleted) return sum
       return sum + toNumber(payment.amount)
     }, 0)
 
