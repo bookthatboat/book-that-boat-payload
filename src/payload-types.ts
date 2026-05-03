@@ -424,7 +424,7 @@ export interface Reservation {
    */
   totalPrice?: number | null;
   /**
-   * Default method used when adding new payment rows. The Payment Manager row method is the source of truth for each payment.
+   * Legacy/default method. The Payment Manager row method is the source of truth for each payment.
    */
   method: 'Mamo Pay' | 'Bank Transfer' | 'Cash';
   /**
