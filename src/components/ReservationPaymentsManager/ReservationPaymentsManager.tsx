@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useMemo } from 'react'
+import React, { useMemo, useState } from 'react'
 import { useField } from '@payloadcms/ui'
 
 type PaymentMethod = 'Mamo Pay' | 'Bank Transfer' | 'Cash'
@@ -63,6 +63,17 @@ const fromDateInputValue = (value: string): string => {
 
 const todayInputValue = () => {
   return new Date().toISOString().slice(0, 10)
+}
+
+const getReservationIdFromAdminUrl = (): string | null => {
+  if (typeof window === 'undefined') return null
+
+  const match = window.location.pathname.match(/\/admin\/collections\/reservations\/([^/?#]+)/)
+  const reservationId = match?.[1]
+
+  if (!reservationId || reservationId === 'create') return null
+
+  return decodeURIComponent(reservationId)
 }
 
 const getFeeFields = (amount: number, method?: PaymentMethod) => {
@@ -246,6 +257,10 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
     [paymentsValue],
   )
 
+  const [isSavingPayments, setIsSavingPayments] = useState(false)
+  const [saveMessage, setSaveMessage] = useState('')
+  const [saveError, setSaveError] = useState('')
+
   const tripStartDate = toDateInputValue(startTimeValue)
 
   const recalculatedPayments = useMemo(() => {
@@ -312,8 +327,61 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
   const uncovered = Math.max(0, totalPrice - totals.active)
   const receivedBalance = Math.max(0, totalPrice - totals.received)
 
+  const persistPayments = async (nextPayments: PaymentRow[]) => {
+    const reservationId = getReservationIdFromAdminUrl()
+
+    if (!reservationId) {
+      setSaveError('Save the reservation first, then you can save payment rows from the Payment Manager.')
+      return
+    }
+
+    setIsSavingPayments(true)
+    setSaveMessage('')
+    setSaveError('')
+
+    try {
+      const response = await fetch(`/api/reservations/${reservationId}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          payments: nextPayments,
+        }),
+      })
+
+      const json = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        const message =
+          json?.errors?.[0]?.message ||
+          json?.message ||
+          'Could not save payment schedule.'
+
+        throw new Error(message)
+      }
+
+      const doc = json?.doc || json
+
+      if (Array.isArray(doc?.payments)) {
+        setPaymentsValue(doc.payments)
+      } else {
+        setPaymentsValue(nextPayments)
+      }
+
+      setSaveMessage('Payment schedule saved.')
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Could not save payment schedule.')
+    } finally {
+      setIsSavingPayments(false)
+    }
+  }
+
   const updatePayments = (nextPayments: PaymentRow[]) => {
     setPaymentsValue(nextPayments)
+    setSaveMessage('')
+    setSaveError('')
   }
 
   const updatePayment = (index: number, patch: Partial<PaymentRow>) => {
@@ -352,7 +420,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
   const addPayment = () => {
     const amountAlreadyCovered = totals.active
     const suggestedAmount = Math.max(0, totalPrice - amountAlreadyCovered)
-    const method = methodValue || 'Mamo Pay'
+    const method = 'Mamo Pay'
     const feeFields = getFeeFields(suggestedAmount, method)
 
     updatePayments([
@@ -377,7 +445,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
   }
 
   const createFullPaymentRow = () => {
-    const method = methodValue || 'Mamo Pay'
+    const method = 'Mamo Pay'
     const feeFields = getFeeFields(totalPrice, method)
 
     updatePayments([
@@ -479,7 +547,31 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
         <button type="button" onClick={syncBalances} style={styles.button}>
           Recalculate balances
         </button>
+        <button
+          type="button"
+          onClick={() => persistPayments(recalculatedPayments)}
+          disabled={isSavingPayments}
+          style={{
+            ...styles.button,
+            opacity: isSavingPayments ? 0.6 : 1,
+            cursor: isSavingPayments ? 'not-allowed' : 'pointer',
+          }}
+        >
+          {isSavingPayments ? 'Saving...' : 'Save payment schedule'}
+        </button>
       </div>
+
+      {(saveMessage || saveError) && (
+        <div
+          style={{
+            padding: '0 16px 16px',
+            color: saveError ? 'var(--theme-error-500)' : 'var(--theme-success-500)',
+            fontSize: 13,
+          }}
+        >
+          {saveError || saveMessage}
+        </div>
+      )}
 
       <div style={styles.tableWrap}>
         {recalculatedPayments.length === 0 ? (
@@ -616,13 +708,28 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
                     </td>
 
                     <td style={styles.td}>
-                      <button
-                        type="button"
-                        onClick={() => removePayment(index)}
-                        style={styles.dangerButton}
-                      >
-                        Remove
-                      </button>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          onClick={() => persistPayments(recalculatedPayments)}
+                          disabled={isSavingPayments}
+                          style={{
+                            ...styles.button,
+                            opacity: isSavingPayments ? 0.6 : 1,
+                            cursor: isSavingPayments ? 'not-allowed' : 'pointer',
+                          }}
+                        >
+                          Save row
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => removePayment(index)}
+                          style={styles.dangerButton}
+                        >
+                          Remove
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 )
