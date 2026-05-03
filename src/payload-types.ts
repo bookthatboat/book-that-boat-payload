@@ -429,7 +429,7 @@ export interface Reservation {
    */
   manualPaymentReceived?: boolean | null;
   /**
-   * Payment ledger for this reservation. Completed payments are kept. Pending unpaid links are superseded and replaced when the total changes.
+   * Raw payment ledger data. Managed through the Payment Manager table above.
    */
   payments?:
     | {
@@ -454,9 +454,9 @@ export interface Reservation {
          */
         customerPayableAmount?: number | null;
         date: string;
-        status: 'pending' | 'manual_pending' | 'completed' | 'failed' | 'refunded' | 'cancelled' | 'superseded';
+        status: 'pending' | 'completed' | 'refunded' | 'failed' | 'cancelled' | 'superseded';
         /**
-         * Balance remaining after this payment
+         * Balance remaining after this payment. This is recalculated by the backend when the reservation is saved.
          */
         balance?: number | null;
         paymentLink?: string | null;

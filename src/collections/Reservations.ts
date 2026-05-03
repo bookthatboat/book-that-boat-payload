@@ -124,7 +124,7 @@ const withWriteConflictRetry = async <T>(fn: () => Promise<T>, retries = 4) => {
 
 type InstallmentStage = 'paid' | 'ready_to_be_installed' | 'installed_ready_to_be_paid'
 type PaymentKind = 'full' | 'downpayment' | 'installment' | 'balance' | 'adjustment'
-type PaymentStatus = 'pending' | 'manual_pending' | 'completed' | 'failed' | 'refunded' | 'cancelled' | 'superseded'
+type PaymentStatus = 'pending' | 'completed' | 'failed' | 'refunded' | 'cancelled' | 'superseded'
 
 const MAMO_PROCESSING_FEE_PERCENTAGE = 4
 
@@ -2080,7 +2080,7 @@ const sendInstallmentReminderEmail = async (
   )
 }
 
-const ACTIVE_PENDING_PAYMENT_STATUSES = new Set(['pending', 'manual_pending'])
+const ACTIVE_PENDING_PAYMENT_STATUSES = new Set(['pending'])
 
 const getCompletedPaidAmount = (payments: Reservation['payments'] | undefined): number => {
   if (!Array.isArray(payments)) return 0
@@ -2167,7 +2167,7 @@ const createPaymentRowForOutstanding = async ({
     amount,
     method: method || 'Mamo Pay',
     date: now,
-    status: method === 'Mamo Pay' ? ('pending' as PaymentStatus) : ('manual_pending' as PaymentStatus),
+    status: 'pending' as PaymentStatus,
     balance: 0,
     paymentLink: '',
     paymentLinkId: '',
@@ -2245,6 +2245,71 @@ const supersedeActivePendingPayments = async ({
   return superseded
 }
 
+const normaliseManualPaymentRowsForSave = (data: any, originalDoc?: any) => {
+  const payments = Array.isArray(data?.payments)
+    ? data.payments
+    : Array.isArray(originalDoc?.payments)
+      ? originalDoc.payments
+      : []
+
+  if (!Array.isArray(payments) || payments.length === 0) {
+    return data
+  }
+
+  const totalPrice = Math.max(0, Math.round(Number(data?.totalPrice ?? originalDoc?.totalPrice ?? 0)))
+  let runningPaidOrPending = 0
+  const now = new Date().toISOString()
+
+  data.payments = payments.map((payment: any, index: number) => {
+    const amount = Math.max(0, Number(payment?.amount || 0))
+    const method = payment?.method || data?.method || originalDoc?.method || 'Mamo Pay'
+    const status = payment?.status || 'pending'
+    const kind =
+      payment?.kind ||
+      (status === 'completed'
+        ? 'full'
+        : method === 'Mamo Pay'
+          ? 'full'
+          : 'balance')
+
+    const shouldCountAgainstBalance =
+      status === 'completed' || status === 'pending'
+
+    if (shouldCountAgainstBalance) {
+      runningPaidOrPending += amount
+    }
+
+    const nextBalance = Math.max(0, Math.round(totalPrice - runningPaidOrPending))
+
+    const feeFields = getPaymentFeeFields({
+      amount,
+      method,
+    })
+
+    return {
+      ...payment,
+      id: payment?.id || `${kind}-${Date.now()}-${index}`,
+      kind,
+      amount,
+      method,
+      status,
+      date: payment?.date || now,
+      createdAt: payment?.createdAt || now,
+      paidAt: status === 'completed' ? payment?.paidAt || now : payment?.paidAt || '',
+      installmentStage:
+        status === 'completed'
+          ? 'paid'
+          : payment?.installmentStage ||
+            (method === 'Mamo Pay' ? 'installed_ready_to_be_paid' : 'ready_to_be_installed'),
+      balance: nextBalance,
+      ...feeFields,
+      notes: payment?.notes || '',
+    }
+  })
+
+  return data
+}
+
 const reconcileReservationPaymentsAfterTotalChange = async ({
   doc,
   previousDoc,
@@ -2267,6 +2332,7 @@ const reconcileReservationPaymentsAfterTotalChange = async ({
 
   const existingPayments = Array.isArray(doc.payments) ? [...doc.payments] : []
   const hasTopLevelPaymentLink = Boolean(doc.paymentLinkId || doc.paymentLink)
+  const shouldClearTopLevelMamoLink = currentMethod !== 'Mamo Pay' && hasTopLevelPaymentLink
 
   const activePendingPayments = getActivePendingPayments(existingPayments)
   const hasActivePendingPayments = activePendingPayments.length > 0
@@ -2274,8 +2340,12 @@ const reconcileReservationPaymentsAfterTotalChange = async ({
   // Reconcile when either:
   // - the total changes, or
   // - the payment method changes while there is an unpaid active pending payment/link,
-  // - or the reservation still has an old top-level payment link from a previous Mamo request.
-  if (!totalChanged && (!methodChanged || (!hasActivePendingPayments && !hasTopLevelPaymentLink))) {
+  // - or the reservation still has an old top-level Mamo payment link while the current method is Cash/Bank Transfer.
+  if (
+    !totalChanged &&
+    !shouldClearTopLevelMamoLink &&
+    (!methodChanged || !hasActivePendingPayments)
+  ) {
     return doc
   }
 
@@ -2294,6 +2364,10 @@ const reconcileReservationPaymentsAfterTotalChange = async ({
     reasonParts.push(`Payment method changed from ${previousMethod} to ${currentMethod}.`)
   }
 
+  if (shouldClearTopLevelMamoLink && !methodChanged) {
+    reasonParts.push(`Old top-level Mamo payment link cleared because current method is ${currentMethod}.`)
+  }
+
   const reason = reasonParts.join(' ')
 
   let updatedPayments = await supersedeActivePendingPayments({
@@ -2304,7 +2378,7 @@ const reconcileReservationPaymentsAfterTotalChange = async ({
   let topLevelPaymentLink = ''
   let topLevelPaymentLinkId = ''
 
-  if (hasTopLevelPaymentLink && methodChanged && previousMethod === 'Mamo Pay') {
+  if (shouldClearTopLevelMamoLink) {
     await deleteMamoPaymentLink(doc.paymentLinkId)
   }
 
@@ -2342,7 +2416,7 @@ const reconcileReservationPaymentsAfterTotalChange = async ({
         amount: overpaidAmount,
         method: doc.method || 'Mamo Pay',
         date: new Date().toISOString(),
-        status: 'manual_pending' as PaymentStatus,
+        status: 'pending' as PaymentStatus,
         balance: 0,
         paymentLink: '',
         paymentLinkId: '',
@@ -3038,14 +3112,16 @@ export const Reservations: CollectionConfig = {
       },
       async ({ data, originalDoc, req }) => {
         try {
-          return await calculateReservationTotalForSave({
+          const calculatedData = await calculateReservationTotalForSave({
             req,
             data,
             originalDoc,
           })
+
+          return normaliseManualPaymentRowsForSave(calculatedData, originalDoc)
         } catch (error) {
           console.error('Error calculating final reservation total:', error)
-          return data
+          return normaliseManualPaymentRowsForSave(data, originalDoc)
         }
       },
     ],
@@ -3603,13 +3679,25 @@ export const Reservations: CollectionConfig = {
       },
     },
     {
+      name: 'reservationPaymentsManager',
+      type: 'ui',
+      label: 'Payment Manager',
+      admin: {
+        components: {
+          Field:
+            '/components/ReservationPaymentsManager/ReservationPaymentsManager#ReservationPaymentsManager',
+        },
+      },
+    },
+    {
       name: 'payments',
       type: 'array',
       label: 'Payments',
       admin: {
+        hidden: true,
         description:
-          'Payment ledger for this reservation. Completed payments are kept. Pending unpaid links are superseded and replaced when the total changes.',
-        initCollapsed: false,
+          'Raw payment ledger data. Managed through the Payment Manager table above.',
+        initCollapsed: true,
       },
       fields: [
         {
@@ -3719,10 +3807,9 @@ export const Reservations: CollectionConfig = {
           label: 'Payment Status',
           options: [
             { label: 'Pending', value: 'pending' },
-            { label: 'Manual Pending', value: 'manual_pending' },
-            { label: 'Completed', value: 'completed' },
-            { label: 'Failed', value: 'failed' },
+            { label: 'Received', value: 'completed' },
             { label: 'Refunded', value: 'refunded' },
+            { label: 'Failed', value: 'failed' },
             { label: 'Cancelled', value: 'cancelled' },
             { label: 'Superseded', value: 'superseded' },
           ],
@@ -3733,8 +3820,10 @@ export const Reservations: CollectionConfig = {
           name: 'balance',
           type: 'number',
           label: 'Remaining Balance',
+          defaultValue: 0,
+          min: 0,
           admin: {
-            description: 'Balance remaining after this payment',
+            description: 'Balance remaining after this payment. This is recalculated by the backend when the reservation is saved.',
             readOnly: true,
           },
         },
