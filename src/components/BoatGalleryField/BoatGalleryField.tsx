@@ -45,6 +45,32 @@ const moveItem = <T,>(items: T[], fromIndex: number, toIndex: number): T[] => {
   return next
 }
 
+const getBoatIdFromAdminUrl = (): string | null => {
+  if (typeof window === 'undefined') return null
+
+  const match = window.location.pathname.match(/\/admin\/collections\/boats\/([^/?#]+)/)
+  const boatId = match?.[1]
+
+  if (!boatId || boatId === 'create') return null
+
+  return decodeURIComponent(boatId)
+}
+
+const normaliseGalleryItems = (items: unknown): GalleryItem[] => {
+  if (!Array.isArray(items)) return []
+
+  return items
+    .map((item: any) => {
+      if (!item?.image) return null
+
+      return {
+        id: item.id,
+        image: item.image,
+      }
+    })
+    .filter(Boolean) as GalleryItem[]
+}
+
 const styles = {
   fieldWrap: {
     marginBottom: 28,
@@ -130,6 +156,7 @@ export function BoatGalleryField({ path, label }: any) {
 
   const draggedIndexRef = useRef<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const hasHydratedExistingGalleryRef = useRef(false)
 
   const imageIds = useMemo(() => {
     return galleryItems.map(getImageId).filter(Boolean) as string[]
@@ -190,6 +217,59 @@ export function BoatGalleryField({ path, label }: any) {
     },
     [setValue],
   )
+
+  useEffect(() => {
+    if (hasHydratedExistingGalleryRef.current) return
+    if (galleryItems.length > 0) return
+
+    const boatId = getBoatIdFromAdminUrl()
+    if (!boatId) return
+
+    hasHydratedExistingGalleryRef.current = true
+
+    let cancelled = false
+
+    async function hydrateExistingGallery() {
+      try {
+        const response = await fetch(`/api/boats/${boatId}?depth=1`, {
+          credentials: 'include',
+        })
+
+        if (!response.ok) return
+
+        const json = await response.json()
+        const doc = json?.doc || json
+        const existingGallery = normaliseGalleryItems(doc?.gallery)
+
+        if (cancelled || existingGallery.length === 0) return
+
+        const existingMediaById = existingGallery.reduce<Record<string, MediaDoc>>((acc, item) => {
+          if (item.image && typeof item.image === 'object' && item.image.id) {
+            acc[item.image.id] = item.image
+          }
+
+          return acc
+        }, {})
+
+        if (Object.keys(existingMediaById).length > 0) {
+          setMediaById((prev) => ({
+            ...prev,
+            ...existingMediaById,
+          }))
+        }
+
+        updateGallery(existingGallery)
+      } catch {
+        // Do not block the admin form if fallback hydration fails.
+      }
+    }
+
+    hydrateExistingGallery()
+
+    return () => {
+      cancelled = true
+    }
+  }, [galleryItems.length, updateGallery])
 
   const uploadSingleFile = async (file: File): Promise<MediaDoc> => {
     const alt = filenameToAlt(file.name)
