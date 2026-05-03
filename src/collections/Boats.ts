@@ -673,6 +673,17 @@ export const Boats: CollectionConfig = {
       },
     },
 
+    {
+      name: 'boatExtrasManager',
+      type: 'ui',
+      label: 'Boat Extras',
+      admin: {
+        components: {
+          Field: '/components/BoatExtrasManager/BoatExtrasManager#BoatExtrasManager',
+        },
+      },
+    },
+
     /* {
       name: 'extras',
       label: 'Available Extras',

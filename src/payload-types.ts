@@ -2186,7 +2186,10 @@ export interface Extra {
    * Select extras that must be purchased with this item
    */
   dependentItems?: (string | Extra)[] | null;
-  boat: (string | Boat)[];
+  /**
+   * Optional. Extras can be created first and assigned to boats later from the Boat edit screen.
+   */
+  boat?: (string | Boat)[] | null;
   updatedAt: string;
   createdAt: string;
 }
