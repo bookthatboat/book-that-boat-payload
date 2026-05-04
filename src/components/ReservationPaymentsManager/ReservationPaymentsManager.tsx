@@ -382,6 +382,13 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
 
   const payments = localPayments
 
+  useEffect(() => {
+    if (!reservationIdForState || localPayments.length === 0) return
+
+    writeSavedPaymentsToSession(reservationIdForState, localPayments)
+    dispatchPaymentsUpdatedEvent(reservationIdForState, localPayments)
+  }, [reservationIdForState, localPayments])
+
   const [isSavingPayments, setIsSavingPayments] = useState(false)
   const [saveMessage, setSaveMessage] = useState('')
   const [saveError, setSaveError] = useState('')

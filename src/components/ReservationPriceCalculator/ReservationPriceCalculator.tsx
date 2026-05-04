@@ -252,6 +252,23 @@ const readPaymentsFromSession = (reservationId: string): PaymentRow[] | null => 
   }
 }
 
+const fetchReservationPayments = async (reservationId: string): Promise<PaymentRow[] | null> => {
+  const response = await fetch(`/api/reservations/${reservationId}?depth=0`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  })
+
+  if (!response.ok) return null
+
+  const json = await response.json().catch(() => null)
+  const doc = json?.doc || json
+
+  return Array.isArray(doc?.payments) ? doc.payments : null
+}
+
 export function ReservationPriceCalculator() {
   const { value: boatValue } = useField<RelationshipValue>({ path: 'boat' })
   const { value: startTime } = useField<string>({ path: 'startTime' })
@@ -311,16 +328,42 @@ export function ReservationPriceCalculator() {
   }, [paymentsValue])
 
   useEffect(() => {
-    if (Array.isArray(paymentsValue) && paymentsValue.length > 0) {
-      setLivePayments(paymentsValue)
-      return
-    }
+    let cancelled = false
 
-    if (reservationIdForPayments) {
+    const hydratePayments = async () => {
+      if (Array.isArray(paymentsValue) && paymentsValue.length > 0) {
+        setLivePayments(paymentsValue)
+        return
+      }
+
+      if (!reservationIdForPayments) return
+
       const sessionPayments = readPaymentsFromSession(reservationIdForPayments)
+
       if (sessionPayments && sessionPayments.length > 0) {
         setLivePayments(sessionPayments)
       }
+
+      const apiPayments = await fetchReservationPayments(reservationIdForPayments)
+
+      if (!cancelled && apiPayments && apiPayments.length > 0) {
+        setLivePayments(apiPayments)
+
+        try {
+          window.sessionStorage.setItem(
+            getPaymentSessionKey(reservationIdForPayments),
+            JSON.stringify(apiPayments),
+          )
+        } catch {
+          // Ignore storage errors. This is only a UI fallback.
+        }
+      }
+    }
+
+    void hydratePayments()
+
+    return () => {
+      cancelled = true
     }
   }, [paymentsValueKey, paymentsValue, reservationIdForPayments])
 
