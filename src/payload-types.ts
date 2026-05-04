@@ -427,7 +427,6 @@ export interface Reservation {
    * Legacy/default method. The Payment Manager row method is the source of truth for each payment.
    */
   method: 'Mamo Pay' | 'Bank Transfer' | 'Cash';
-  paymentsUpdateSource?: string | null;
   /**
    * Build and track the reservation payment schedule. Payment links are stored per row.
    */
@@ -2557,7 +2556,6 @@ export interface ReservationsSelect<T extends boolean = true> {
   customDiscountAmount?: T;
   totalPrice?: T;
   method?: T;
-  paymentsUpdateSource?: T;
   payments?:
     | T
     | {
