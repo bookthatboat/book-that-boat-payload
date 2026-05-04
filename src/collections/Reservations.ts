@@ -2746,6 +2746,156 @@ const sendScheduledManualPaymentEmail = async ({
   )
 }
 
+
+const activatePaymentScheduleForReservation = async ({
+  reservation,
+  boat,
+  user,
+  payload,
+}: {
+  reservation: Reservation
+  boat: Boat
+  user: User
+  payload: any
+}) => {
+  const now = new Date().toISOString()
+  const existingPayments = Array.isArray(reservation.payments) ? [...reservation.payments] : []
+
+  let payments = existingPayments
+  let createdFallbackSchedule = false
+
+  if (payments.length === 0) {
+    const totalPrice = Number(reservation.totalPrice || 0)
+
+    payments = [
+      {
+        id: `payment-${Date.now()}`,
+        kind: 'full',
+        installmentStage:
+          reservation.method === 'Mamo Pay'
+            ? ('ready_to_be_installed' as InstallmentStage)
+            : ('ready_to_be_installed' as InstallmentStage),
+        createdAt: now,
+        installedAt: '',
+        paidAt: '',
+        amount: totalPrice,
+        method: reservation.method || 'Mamo Pay',
+        date: now,
+        status: 'pending' as PaymentStatus,
+        balance: 0,
+        paymentLink: '',
+        paymentLinkId: '',
+        notes: 'Full payment row created automatically when reservation moved to awaiting payment.',
+      },
+    ] as NonNullable<Reservation['payments']>
+
+    createdFallbackSchedule = true
+  }
+
+  let changed = createdFallbackSchedule
+  let latestPaymentLink = ''
+  let latestPaymentLinkId = ''
+  let firstPaymentLink = ''
+  let firstPaymentLinkId = ''
+
+  for (let index = 0; index < payments.length; index++) {
+    const payment = payments[index]
+    if (!payment) continue
+
+    const status = payment.status || ''
+    const method = payment.method || reservation.method || 'Mamo Pay'
+
+    // Only activate rows that the admin has marked as "Awaiting Payment".
+    // Scheduled rows remain scheduled until activateDueScheduledPayments picks them up.
+    if (status !== 'pending') continue
+
+    if (method === 'Mamo Pay') {
+      if (payment.paymentLinkId && payment.paymentLink) {
+        latestPaymentLink = payment.paymentLink
+        latestPaymentLinkId = payment.paymentLinkId
+
+        if (!firstPaymentLink) {
+          firstPaymentLink = payment.paymentLink
+          firstPaymentLinkId = payment.paymentLinkId
+        }
+
+        continue
+      }
+
+      const paymentReservation = {
+        ...reservation,
+        totalPrice: Number(payment.amount || 0),
+      } as Reservation
+
+      const link = await createMamoPaymentLink(paymentReservation, boat, user)
+
+      payments[index] = {
+        ...payment,
+        method: 'Mamo Pay',
+        status: 'pending',
+        installmentStage: 'installed_ready_to_be_paid' as InstallmentStage,
+        installedAt: payment.installedAt || now,
+        paymentLink: link?.url || payment.paymentLink || '',
+        paymentLinkId: link?.id || payment.paymentLinkId || '',
+        notes: `${payment.notes || ''}${payment.notes ? '\n' : ''}Mamo Pay link created when reservation moved to awaiting payment.`,
+      }
+
+      latestPaymentLink = link?.url || latestPaymentLink
+      latestPaymentLinkId = link?.id || latestPaymentLinkId
+
+      if (!firstPaymentLink && link?.url) {
+        firstPaymentLink = link.url
+        firstPaymentLinkId = link.id || ''
+      }
+
+      changed = true
+      continue
+    }
+
+    // Manual payment methods: keep the row pending and send instruction email.
+    payments[index] = {
+      ...payment,
+      method,
+      status: 'pending',
+      installedAt: payment.installedAt || now,
+      notes: `${payment.notes || ''}${payment.notes ? '\n' : ''}Manual payment request activated when reservation moved to awaiting payment.`,
+    }
+
+    await sendScheduledManualPaymentEmail({
+      reservation,
+      payment: payments[index],
+    })
+
+    changed = true
+  }
+
+  if (changed) {
+    await withWriteConflictRetry(() =>
+      payload.update({
+        collection: 'reservations',
+        id: reservation.id,
+        data: {
+          payments,
+          paymentLink: firstPaymentLink || latestPaymentLink || '',
+          paymentLinkId: firstPaymentLinkId || latestPaymentLinkId || '',
+        },
+        overrideAccess: true,
+        context: {
+          skipPaymentReconciliation: true,
+          skipBalancePaymentLink: true,
+        },
+      }),
+    )
+  }
+
+  return {
+    payments,
+    paymentLink: firstPaymentLink || latestPaymentLink || '',
+    paymentLinkId: firstPaymentLinkId || latestPaymentLinkId || '',
+  }
+}
+
+
 const activateDueScheduledPayments = async (payload: any) => {
   try {
     const now = new Date()
@@ -4025,120 +4175,51 @@ export const Reservations: CollectionConfig = {
             return
           }
 
-          // Create payment plan if status changed to 'awaiting payment'
+          // Activate the Payment Schedule Manager rows when status changes to awaiting payment.
+          // The payment schedule is now the source of truth. Legacy top-level paymentLink/paymentLinkId
+          // are only mirrored from the first active Mamo Pay row for backwards compatibility.
           if (shouldProcessPaymentLink) {
             try {
-              // Check if this is an installment payment or single payment
-              const useInstallments = doc.paymentMethod === 'installments' || doc.paymentMethod === 'deposit_balance'
+              const activatedSchedule = await activatePaymentScheduleForReservation({
+                reservation: doc,
+                boat,
+                user,
+                payload,
+              })
 
-              if (useInstallments) {
-                // Create installment plan (down payment link now + scheduled installments later)
-                const payments = await createInstallmentPlan(doc, boat, user, payload)
+              startPaymentPolling(payload)
 
-                const down = payments?.[0]
-
-                // Update reservation with payment plan + expose the down payment link at top-level fields
-                await payload.update({
-                  collection: 'reservations',
-                  id: doc.id,
-                  data: {
-                    payments,
-                    paymentLink: down?.paymentLink || '',
-                    paymentLinkId: down?.paymentLinkId || '',
-                  },
-                  overrideAccess: true,
-                })
-
-                // Send down payment email
-                if (payments && payments.length > 0) {
-                  await sendInstallmentEmail(
-                    user,
-                    boat,
-                    doc,
-                    1,
-                    payments.length,
-                    payments[0].amount,
-                    payments[0].paymentLink || '',
-                    payments[0].date,
-                  )
-                }
-
-                startPaymentPolling(payload)
-                doc.payments = payments
-                doc.paymentLink = down?.paymentLink || ''
-                doc.paymentLinkId = down?.paymentLinkId || ''
-                return doc
-              } else {
-                // Original single payment logic
-                const paymentLink = await createMamoPaymentLink(doc, boat, user)
-
-                if (paymentLink) {
-                  // Update reservation with payment link
-                  const payments = [
-                    {
-                      id: `payment-${Date.now()}`,
-                      kind: 'full',
-                      installmentStage: 'installed_ready_to_be_paid',
-                      createdAt: new Date().toISOString(),
-                      installedAt: new Date().toISOString(),
-                      paidAt: '',
-                      amount: doc.totalPrice,
-                      method: doc.method || 'Mamo Pay',
-                      date: new Date().toISOString(),
-                      status: 'pending',
-                      balance: 0,
-                      paymentLink: paymentLink.url,
-                      paymentLinkId: paymentLink.id,
-                      notes: 'Full payment',
-                    },
-                  ] satisfies NonNullable<Reservation['payments']>
-
-                  await withWriteConflictRetry(() =>
-                    req.payload.update({
-                      collection: 'reservations',
-                      id: doc.id,
-                      data: {
-                        paymentLink: paymentLink.url,
-                        paymentLinkId: paymentLink.id,
-                        payments,
-                      },
-                      overrideAccess: true,
-                    }),
-                  )
-
-                  startPaymentPolling(payload)
-
-                  // Send awaiting payment email
-                  if (user.email) {
-                    await sendEmail(
-                      user.email,
-                      `Book That Boat - Yacht Rental Dubai - Booking #${doc.transactionId || doc.id}`,
-                      getStatusEmailContent('user', 'awaiting payment', boat, user, {
-                        ...doc,
-                        paymentLink: paymentLink.url,
-                      }),
-                    )
-                  }
-
-                  await sendEmail(
-                    EMAIL_CONFIG.adminEmail,
-                    '[Admin] Payment Required for Booking',
-                    getStatusEmailContent('admin', 'awaiting payment', boat, user, {
-                      ...doc,
-                      paymentLink: paymentLink.url,
-                    }),
-                  )
-
-                  doc.paymentLink = paymentLink.url
-                  doc.paymentLinkId = paymentLink.id
-                  doc.payments = payments
-                  return doc
-                } else {
-                  console.warn('Payment link was not created')
-                }
+              if (user.email) {
+                await sendEmail(
+                  user.email,
+                  `Book That Boat - Yacht Rental Dubai - Booking #${doc.transactionId || doc.id}`,
+                  getStatusEmailContent('user', 'awaiting payment', boat, user, {
+                    ...doc,
+                    payments: activatedSchedule.payments,
+                    paymentLink: activatedSchedule.paymentLink,
+                    paymentLinkId: activatedSchedule.paymentLinkId,
+                  }),
+                )
               }
+
+              await sendEmail(
+                EMAIL_CONFIG.adminEmail,
+                '[Admin] Payment Required for Booking',
+                getStatusEmailContent('admin', 'awaiting payment', boat, user, {
+                  ...doc,
+                  payments: activatedSchedule.payments,
+                  paymentLink: activatedSchedule.paymentLink,
+                  paymentLinkId: activatedSchedule.paymentLinkId,
+                }),
+              )
+
+              doc.payments = activatedSchedule.payments
+              doc.paymentLink = activatedSchedule.paymentLink
+              doc.paymentLinkId = activatedSchedule.paymentLinkId
+
+              return doc
             } catch (error) {
-              console.error('Error creating payment plan:', error)
+              console.error('Error activating payment schedule:', error)
             }
           }
 
