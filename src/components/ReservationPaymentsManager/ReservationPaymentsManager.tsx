@@ -387,6 +387,12 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
 
       const doc = json?.doc || json
 
+      if (nextPayments.length > 0 && json?.paymentsCount === 0) {
+        throw new Error(
+          'Payment schedule was submitted but the backend returned zero saved payment rows.',
+        )
+      }
+
       if (Array.isArray(doc?.payments)) {
         setPaymentsValue(doc.payments)
       } else {

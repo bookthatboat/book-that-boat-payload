@@ -2514,7 +2514,11 @@ const activateDueScheduledPayments = async (payload: any) => {
   }
 }
 
-const shouldAcceptIncomingPaymentsUpdate = (req?: any, context?: any) => {
+const shouldAcceptIncomingPaymentsUpdate = (data?: any, req?: any, context?: any) => {
+  if (data?.paymentsUpdateSource === 'payment-manager') {
+    return true
+  }
+
   if (context?.paymentsUpdateSource === 'payment-manager') {
     return true
   }
@@ -2560,7 +2564,7 @@ const preserveExistingPaymentsForNormalReservationSave = (
     return cleanedData
   }
 
-  if (shouldAcceptIncomingPaymentsUpdate(req, context)) {
+  if (shouldAcceptIncomingPaymentsUpdate(data, req, context)) {
     return cleanedData
   }
 
@@ -3240,7 +3244,8 @@ export const Reservations: CollectionConfig = {
           id,
           data: {
             payments,
-          },
+            paymentsUpdateSource: 'payment-manager',
+          } as any,
           overrideAccess: true,
           context: {
             paymentsUpdateSource: 'payment-manager',
@@ -3249,6 +3254,9 @@ export const Reservations: CollectionConfig = {
 
         return Response.json({
           doc: updatedDoc,
+          paymentsCount: Array.isArray((updatedDoc as any)?.payments)
+            ? (updatedDoc as any).payments.length
+            : 0,
         })
       },
     },
