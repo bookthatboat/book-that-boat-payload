@@ -66,6 +66,26 @@ const todayInputValue = () => {
   return new Date().toISOString().slice(0, 10)
 }
 
+const getDefaultScheduleDate = ({
+  reservationCreatedDate,
+  tripStartDate,
+}: {
+  reservationCreatedDate?: string
+  tripStartDate?: string
+}) => {
+  const today = todayInputValue()
+
+  if (reservationCreatedDate && today < reservationCreatedDate) {
+    return reservationCreatedDate
+  }
+
+  if (tripStartDate && today > tripStartDate) {
+    return tripStartDate
+  }
+
+  return today
+}
+
 const getReservationIdFromAdminUrl = (): string | null => {
   if (typeof window === 'undefined') return null
 
@@ -248,6 +268,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
   const { value: methodValue } = useField<PaymentMethod>({ path: 'method' })
   const { value: paymentPlanValue } = useField<string>({ path: 'paymentMethod' })
   const { value: startTimeValue } = useField<string>({ path: 'startTime' })
+  const { value: createdAtValue } = useField<string>({ path: 'createdAt' })
   const { value: paymentsValue, setValue: setPaymentsValue } = useField<PaymentRow[]>({
     path,
   })
@@ -263,6 +284,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
   const [saveError, setSaveError] = useState('')
 
   const tripStartDate = toDateInputValue(startTimeValue)
+  const reservationCreatedDate = toDateInputValue(createdAtValue) || todayInputValue()
 
   const recalculatedPayments = useMemo(() => {
     let runningPaidOrPending = 0
@@ -425,6 +447,13 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
     const method = 'Mamo Pay'
     const feeFields = getFeeFields(suggestedAmount, method)
 
+    const defaultScheduleDate = fromDateInputValue(
+      getDefaultScheduleDate({
+        reservationCreatedDate,
+        tripStartDate,
+      }),
+    )
+
     updatePayments([
       ...recalculatedPayments,
       {
@@ -433,7 +462,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
         amount: suggestedAmount,
         method,
         status: paymentPlanValue === 'full' ? 'pending' : 'scheduled',
-        date: new Date().toISOString(),
+        date: defaultScheduleDate,
         createdAt: new Date().toISOString(),
         paidAt: '',
         installmentStage: 'ready_to_be_installed',
@@ -450,6 +479,13 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
     const method = 'Mamo Pay'
     const feeFields = getFeeFields(totalPrice, method)
 
+    const defaultScheduleDate = fromDateInputValue(
+      getDefaultScheduleDate({
+        reservationCreatedDate,
+        tripStartDate,
+      }),
+    )
+
     updatePayments([
       {
         id: `payment-${Date.now()}`,
@@ -457,7 +493,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
         amount: totalPrice,
         method,
         status: 'pending',
-        date: new Date().toISOString(),
+        date: defaultScheduleDate,
         createdAt: new Date().toISOString(),
         paidAt: '',
         installmentStage: 'ready_to_be_installed',
@@ -623,11 +659,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
                     <td style={styles.td}>
                       <input
                         type="date"
-                        min={
-                          payment.status === 'scheduled' || payment.status === 'pending'
-                            ? todayInputValue()
-                            : undefined
-                        }
+                        min={reservationCreatedDate || undefined}
                         max={tripStartDate || undefined}
                         value={toDateInputValue(payment.date)}
                         onChange={(event) =>
@@ -637,7 +669,9 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
                         }
                         style={styles.input}
                       />
-                      <div style={styles.small}>Planned payment date</div>
+                      <div style={styles.small}>
+                        Planned payment date. Must be between booking creation and trip date.
+                      </div>
                     </td>
 
                     <td style={styles.td}>
