@@ -2306,9 +2306,11 @@ const validateReservationPaymentSchedule = ({
 
   const startTimeValue = data?.startTime || originalDoc?.startTime
   const tripStart = startTimeValue ? startOfUtcDay(new Date(startTimeValue)) : null
-  const today = startOfUtcDay(new Date())
 
-  const isCreate = operation === 'create'
+  const reservationCreatedAtValue =
+    originalDoc?.createdAt || data?.createdAt || new Date().toISOString()
+
+  const reservationCreatedAt = startOfUtcDay(new Date(reservationCreatedAtValue))
 
   let activeScheduledTotal = 0
 
@@ -2333,16 +2335,16 @@ const validateReservationPaymentSchedule = ({
 
     const dueDate = startOfUtcDay(new Date(dueIso))
 
-    // For received/refunded/historical rows, allow old due dates.
-    // Only future-facing scheduled/awaiting payment rows must not be before today.
-    const shouldValidateAgainstToday = isPaymentPendingOrScheduled(payment)
-
-    if (shouldValidateAgainstToday && dueDate < today) {
-      throw new Error(`Payment row ${rowNumber}: due date cannot be before today unless the row is already Received or Refunded.`)
+    // Scheduled/Awaiting rows must sit inside the booking lifecycle:
+    // not before the reservation was created, and not after the trip starts.
+    // Received/refunded rows can keep historical received/refund dates, but their scheduled
+    // due date should still belong to the reservation lifecycle.
+    if (dueDate < reservationCreatedAt) {
+      throw new Error(`Payment row ${rowNumber}: scheduled due date cannot be before the reservation was created.`)
     }
 
     if (tripStart && dueDate > tripStart) {
-      throw new Error(`Payment row ${rowNumber}: due date cannot be after the trip start date.`)
+      throw new Error(`Payment row ${rowNumber}: scheduled due date cannot be after the trip start date.`)
     }
   })
 
