@@ -97,6 +97,51 @@ const getReservationIdFromAdminUrl = (): string | null => {
   return decodeURIComponent(reservationId)
 }
 
+const getPaymentSessionKey = (reservationId: string) => {
+  return `reservation-payments:${reservationId}`
+}
+
+const readSavedPaymentsFromSession = (reservationId: string): PaymentRow[] | null => {
+  if (typeof window === 'undefined') return null
+
+  try {
+    const raw = window.sessionStorage.getItem(getPaymentSessionKey(reservationId))
+    if (!raw) return null
+
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+const writeSavedPaymentsToSession = (reservationId: string, payments: PaymentRow[]) => {
+  if (typeof window === 'undefined') return
+
+  try {
+    window.sessionStorage.setItem(getPaymentSessionKey(reservationId), JSON.stringify(payments))
+  } catch {
+    // Ignore storage errors. This is only a UI fallback.
+  }
+}
+
+const fetchReservationPayments = async (reservationId: string): Promise<PaymentRow[] | null> => {
+  const response = await fetch(`/api/reservations/${reservationId}?depth=0`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  })
+
+  if (!response.ok) return null
+
+  const json = await response.json().catch(() => null)
+  const doc = json?.doc || json
+
+  return Array.isArray(doc?.payments) ? doc.payments : null
+}
+
 const getFeeFields = (amount: number, method?: PaymentMethod) => {
   const safeAmount = Math.max(0, Math.round(toNumber(amount)))
 
@@ -274,9 +319,16 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
   })
 
   const totalPrice = Math.max(0, Math.round(toNumber(totalPriceValue)))
-  const [localPayments, setLocalPayments] = useState<PaymentRow[]>(() =>
-    Array.isArray(paymentsValue) ? paymentsValue : [],
-  )
+  const reservationIdForState = getReservationIdFromAdminUrl()
+
+  const [localPayments, setLocalPayments] = useState<PaymentRow[]>(() => {
+    if (reservationIdForState) {
+      const sessionPayments = readSavedPaymentsFromSession(reservationIdForState)
+      if (sessionPayments && sessionPayments.length > 0) return sessionPayments
+    }
+
+    return Array.isArray(paymentsValue) ? paymentsValue : []
+  })
 
   const paymentsValueKey = useMemo(() => {
     if (!Array.isArray(paymentsValue)) return '[]'
@@ -304,9 +356,16 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
         return currentPayments
       }
 
+      if (paymentsValue.length === 0 && reservationIdForState) {
+        const sessionPayments = readSavedPaymentsFromSession(reservationIdForState)
+        if (sessionPayments && sessionPayments.length > 0) {
+          return sessionPayments
+        }
+      }
+
       return paymentsValue
     })
-  }, [paymentsValueKey, paymentsValue])
+  }, [paymentsValueKey, paymentsValue, reservationIdForState])
 
   const payments = localPayments
 
@@ -443,17 +502,22 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
         )
       }
 
-      const paymentsToRender =
+      let paymentsToRender =
         Array.isArray(savedPayments) && savedPayments.length > 0 ? savedPayments : nextPayments
 
+      const reloadedPayments = await fetchReservationPayments(reservationId)
+
+      if (Array.isArray(reloadedPayments) && reloadedPayments.length > 0) {
+        paymentsToRender = reloadedPayments
+      }
+
       // Update local render state first so the table does not disappear even if Payload's
-      // internal form state is stale or temporarily empty.
+      // internal form state is stale, empty, or remounted after the API save.
       setLocalPayments(paymentsToRender)
       setPaymentsValue(paymentsToRender)
+      writeSavedPaymentsToSession(reservationId, paymentsToRender)
 
-      setSaveMessage(
-        `Payment schedule saved. Rows saved: ${paymentsToRender.length}.`,
-      )
+      setSaveMessage(`Payment schedule saved. Rows saved: ${paymentsToRender.length}.`)
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : 'Could not save payment schedule.')
     } finally {
@@ -464,6 +528,11 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
   const updatePayments = (nextPayments: PaymentRow[]) => {
     setLocalPayments(nextPayments)
     setPaymentsValue(nextPayments)
+
+    if (reservationIdForState && nextPayments.length > 0) {
+      writeSavedPaymentsToSession(reservationIdForState, nextPayments)
+    }
+
     setSaveMessage('')
     setSaveError('')
   }
