@@ -412,7 +412,7 @@ export interface Reservation {
   guestPhone: string;
   startTime: string;
   endTime: string;
-  status?: ('pending' | 'confirmed' | 'cancelled' | 'awaiting payment') | null;
+  status?: ('pending' | 'awaiting payment' | 'confirmed_balance_due' | 'confirmed' | 'cancelled') | null;
   paymentLinkId?: string | null;
   paymentLink?: string | null;
   /**

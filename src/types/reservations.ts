@@ -2,7 +2,7 @@
 import { Boat } from './boats'
 import { User } from '@/types/users'
 
-export type ReservationStatus = 'pending' | 'confirmed' | 'cancelled' | 'awaiting payment'
+export type ReservationStatus = 'pending' | 'confirmed' | 'confirmed_balance_due' | 'cancelled' | 'awaiting payment'
 
 export interface Reservation {
   id: string

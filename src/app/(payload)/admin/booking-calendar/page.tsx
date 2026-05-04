@@ -92,7 +92,7 @@ const BookingCalendarPage = async () => {
       and: [
         {
           status: {
-            equals: 'confirmed',
+            in: ['confirmed', 'confirmed_balance_due'],
           },
         },
         {
