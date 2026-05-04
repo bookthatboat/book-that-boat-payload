@@ -363,20 +363,16 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
     setSaveError('')
 
     try {
-      const response = await fetch(
-        `/api/reservations/${reservationId}?paymentsUpdateSource=payment-manager`,
-        {
-          method: 'PATCH',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-payments-update-source': 'payment-manager',
-          },
-          body: JSON.stringify({
-            payments: nextPayments,
-          }),
+      const response = await fetch(`/api/reservations/${reservationId}/save-payments`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
         },
-      )
+        body: JSON.stringify({
+          payments: nextPayments,
+        }),
+      })
 
       const json = await response.json().catch(() => null)
 
