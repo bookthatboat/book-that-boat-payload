@@ -42,10 +42,27 @@ export const Boats: CollectionConfig = {
   slug: 'boats',
   admin: {
     useAsTitle: 'name',
-    defaultColumns: ['name', 'owner', 'location', 'price', 'minHours', 'type', 'specialEventTags'],
+    defaultColumns: [
+      'name',
+      'archived',
+      'owner',
+      'location',
+      'price',
+      'minHours',
+      'type',
+      'specialEventTags',
+    ],
   },
   access: {
-    read: () => true,
+    read: ({ req }) => {
+      if (req.user) return true
+
+      return {
+        archived: {
+          not_equals: true,
+        },
+      }
+    },
   },
   hooks: {
     beforeChange: [
@@ -169,6 +186,18 @@ export const Boats: CollectionConfig = {
   },
 
   fields: [
+    {
+      name: 'archived',
+      type: 'checkbox',
+      label: 'Archived',
+      defaultValue: false,
+      index: true,
+      admin: {
+        position: 'sidebar',
+        description:
+          'Archived boats remain in the system for old reservations but are hidden from the public frontend.',
+      },
+    },
     {
       name: 'slug',
       type: 'text',

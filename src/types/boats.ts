@@ -51,6 +51,7 @@ export interface EventTypeTaxonomy {
 
 export interface Extra {
   id: string
+  archived?: boolean
   category: string
   name: string
   description: any
@@ -75,6 +76,7 @@ export type Coupon = {
 export interface Boat {
   minHours: number
   id: string
+  archived?: boolean
   name: string
   slug: string
   specialEventTags?: Array<string | EventTypeTaxonomy>

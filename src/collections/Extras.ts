@@ -39,9 +39,18 @@ export const Extras: CollectionConfig = {
   slug: 'extras',
   admin: {
     useAsTitle: 'name',
+    defaultColumns: ['name', 'archived', 'category', 'unitPrice'],
   },
   access: {
-    read: () => true,
+    read: ({ req }) => {
+      if (req.user) return true
+
+      return {
+        archived: {
+          not_equals: true,
+        },
+      }
+    },
   },
   hooks: {
     beforeChange: [
@@ -74,6 +83,18 @@ export const Extras: CollectionConfig = {
     ],
   },
   fields: [
+    {
+      name: 'archived',
+      type: 'checkbox',
+      label: 'Archived',
+      defaultValue: false,
+      index: true,
+      admin: {
+        position: 'sidebar',
+        description:
+          'Archived extras remain in the system for old reservations but are hidden from the public frontend.',
+      },
+    },
     {
       name: 'category',
       type: 'select',

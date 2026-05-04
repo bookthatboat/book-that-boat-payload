@@ -507,6 +507,10 @@ export interface Reservation {
  */
 export interface Boat {
   id: string;
+  /**
+   * Archived boats remain in the system for old reservations but are hidden from the public frontend.
+   */
+  archived?: boolean | null;
   slug: string;
   owner?: (string | null) | Owner;
   name: string;
@@ -2178,6 +2182,10 @@ export interface EventType {
  */
 export interface Extra {
   id: string;
+  /**
+   * Archived extras remain in the system for old reservations but are hidden from the public frontend.
+   */
+  archived?: boolean | null;
   category: 'watersports' | 'catering' | 'entertainment' | 'decor';
   name: string;
   /**
@@ -2660,6 +2668,7 @@ export interface OwnersSelect<T extends boolean = true> {
  * via the `definition` "boats_select".
  */
 export interface BoatsSelect<T extends boolean = true> {
+  archived?: T;
   slug?: T;
   owner?: T;
   name?: T;
@@ -2782,6 +2791,7 @@ export interface BoatTypesSelect<T extends boolean = true> {
  * via the `definition` "extras_select".
  */
 export interface ExtrasSelect<T extends boolean = true> {
+  archived?: T;
   category?: T;
   name?: T;
   description?: T;
