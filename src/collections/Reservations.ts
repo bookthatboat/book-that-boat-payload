@@ -3257,12 +3257,30 @@ export const Reservations: CollectionConfig = {
           },
         })
 
+        const savedPayments = Array.isArray((updatedDoc as any)?.payments)
+          ? (updatedDoc as any).payments
+          : []
+
+        if (payments.length > 0 && savedPayments.length === 0) {
+          return Response.json(
+            {
+              message:
+                'Payment rows were submitted but the saved reservation returned zero payment rows.',
+              submittedPaymentsCount: payments.length,
+              paymentsCount: 0,
+              submittedPayments: payments,
+            },
+            {
+              status: 500,
+            },
+          )
+        }
+
         return Response.json({
           doc: updatedDoc,
           submittedPaymentsCount: payments.length,
-          paymentsCount: Array.isArray((updatedDoc as any)?.payments)
-            ? (updatedDoc as any).payments.length
-            : 0,
+          paymentsCount: savedPayments.length,
+          savedPayments,
         })
       },
     },

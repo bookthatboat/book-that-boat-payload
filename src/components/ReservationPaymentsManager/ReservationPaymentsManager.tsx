@@ -376,6 +376,14 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
 
       const json = await response.json().catch(() => null)
 
+      console.info('Payment schedule save response', {
+        status: response.status,
+        submittedPaymentsCount: json?.submittedPaymentsCount,
+        paymentsCount: json?.paymentsCount,
+        savedPaymentsLength: Array.isArray(json?.savedPayments) ? json.savedPayments.length : null,
+        docPaymentsLength: Array.isArray(json?.doc?.payments) ? json.doc.payments.length : null,
+      })
+
       if (!response.ok) {
         const message =
           json?.errors?.[0]?.message ||
@@ -386,6 +394,11 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
       }
 
       const doc = json?.doc || json
+      const savedPayments = Array.isArray(json?.savedPayments)
+        ? json.savedPayments
+        : Array.isArray(doc?.payments)
+          ? doc.payments
+          : null
 
       if (nextPayments.length > 0 && json?.paymentsCount === 0) {
         throw new Error(
@@ -393,13 +406,24 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
         )
       }
 
-      if (Array.isArray(doc?.payments)) {
-        setPaymentsValue(doc.payments)
+      if (nextPayments.length > 0 && Array.isArray(savedPayments) && savedPayments.length === 0) {
+        throw new Error(
+          'Payment schedule was submitted but the backend returned an empty payment schedule.',
+        )
+      }
+
+      if (Array.isArray(savedPayments) && savedPayments.length > 0) {
+        setPaymentsValue(savedPayments)
       } else {
+        // Never clear local rows because of a partial or missing API response.
         setPaymentsValue(nextPayments)
       }
 
-      setSaveMessage('Payment schedule saved.')
+      setSaveMessage(
+        `Payment schedule saved. Rows saved: ${
+          Array.isArray(savedPayments) ? savedPayments.length : nextPayments.length
+        }.`,
+      )
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : 'Could not save payment schedule.')
     } finally {
