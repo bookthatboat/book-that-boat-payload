@@ -2514,7 +2514,15 @@ const activateDueScheduledPayments = async (payload: any) => {
   }
 }
 
-const shouldAcceptIncomingPaymentsUpdate = (req?: any) => {
+const shouldAcceptIncomingPaymentsUpdate = (req?: any, context?: any) => {
+  if (context?.paymentsUpdateSource === 'payment-manager') {
+    return true
+  }
+
+  if (req?.context?.paymentsUpdateSource === 'payment-manager') {
+    return true
+  }
+
   const headerSource =
     typeof req?.headers?.get === 'function'
       ? req.headers.get('x-payments-update-source')
@@ -2538,6 +2546,7 @@ const preserveExistingPaymentsForNormalReservationSave = (
   data: any,
   originalDoc?: any,
   req?: any,
+  context?: any,
 ) => {
   const originalPayments = Array.isArray(originalDoc?.payments) ? originalDoc.payments : []
 
@@ -2551,7 +2560,7 @@ const preserveExistingPaymentsForNormalReservationSave = (
     return cleanedData
   }
 
-  if (shouldAcceptIncomingPaymentsUpdate(req)) {
+  if (shouldAcceptIncomingPaymentsUpdate(req, context)) {
     return cleanedData
   }
 
@@ -3200,6 +3209,50 @@ const updateBoatReservationCount = async ({
 
 export const Reservations: CollectionConfig = {
   slug: 'reservations',
+  endpoints: [
+    {
+      path: '/:id/save-payments',
+      method: 'patch',
+      handler: async (req) => {
+        const routeParams = (req as any).routeParams || {}
+        const id = Array.isArray(routeParams.id) ? routeParams.id[0] : routeParams.id
+
+        if (!id) {
+          return Response.json(
+            {
+              message: 'Missing reservation ID.',
+            },
+            {
+              status: 400,
+            },
+          )
+        }
+
+        const body =
+          typeof req.json === 'function'
+            ? await req.json().catch(() => null)
+            : (req as any).body || null
+
+        const payments = Array.isArray(body?.payments) ? body.payments : []
+
+        const updatedDoc = await req.payload.update({
+          collection: 'reservations',
+          id,
+          data: {
+            payments,
+          },
+          overrideAccess: true,
+          context: {
+            paymentsUpdateSource: 'payment-manager',
+          },
+        })
+
+        return Response.json({
+          doc: updatedDoc,
+        })
+      },
+    },
+  ],
   admin: {
     defaultColumns: ['transactionId', 'boat', 'supplier', 'user', 'status', 'startTime', 'endTime'],
   },
@@ -3215,14 +3268,14 @@ export const Reservations: CollectionConfig = {
 
   hooks: {
     beforeChange: [
-      async ({ data, originalDoc, operation, req }) => {
+      async ({ data, originalDoc, operation, req, context }) => {
         // Payment ledger safety guard:
         // Only the Payment Schedule Manager direct save is allowed to update payments.
         // Normal Payload page saves can submit stale payments form state, so they must preserve
         // the existing payment ledger.
         if (operation !== 'update') return data
 
-        return preserveExistingPaymentsForNormalReservationSave(data, originalDoc, req)
+        return preserveExistingPaymentsForNormalReservationSave(data, originalDoc, req, context)
       },
 
       async ({ data, operation, originalDoc }) => {
@@ -3440,11 +3493,11 @@ export const Reservations: CollectionConfig = {
           return data
         }
       },
-      async ({ data, originalDoc, req, operation }) => {
+      async ({ data, originalDoc, req, operation, context }) => {
         try {
           const calculatedData = await calculateReservationTotalForSave({
             req,
-            data: preserveExistingPaymentsForNormalReservationSave(data, originalDoc, req),
+            data: preserveExistingPaymentsForNormalReservationSave(data, originalDoc, req, context),
             originalDoc,
           })
 
@@ -3461,7 +3514,7 @@ export const Reservations: CollectionConfig = {
           console.error('Error calculating final reservation total:', error)
 
           const normalisedData = normaliseManualPaymentRowsForSave(
-            preserveExistingPaymentsForNormalReservationSave(data, originalDoc, req),
+            preserveExistingPaymentsForNormalReservationSave(data, originalDoc, req, context),
             originalDoc,
           )
 
