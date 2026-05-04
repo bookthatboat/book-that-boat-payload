@@ -2514,23 +2514,49 @@ const activateDueScheduledPayments = async (payload: any) => {
   }
 }
 
-const shouldAcceptIncomingPaymentsUpdate = (data: any) => {
-  return data?.paymentsUpdateSource === 'payment-manager'
+const shouldAcceptIncomingPaymentsUpdate = (req?: any) => {
+  const headerSource =
+    typeof req?.headers?.get === 'function'
+      ? req.headers.get('x-payments-update-source')
+      : req?.headers?.['x-payments-update-source']
+
+  const querySource =
+    req?.query?.paymentsUpdateSource ||
+    req?.searchParams?.get?.('paymentsUpdateSource') ||
+    ''
+
+  const requestUrl = String(req?.url || '')
+
+  return (
+    headerSource === 'payment-manager' ||
+    querySource === 'payment-manager' ||
+    requestUrl.includes('paymentsUpdateSource=payment-manager')
+  )
 }
 
-const preserveExistingPaymentsForNormalReservationSave = (data: any, originalDoc?: any) => {
+const preserveExistingPaymentsForNormalReservationSave = (
+  data: any,
+  originalDoc?: any,
+  req?: any,
+) => {
   const originalPayments = Array.isArray(originalDoc?.payments) ? originalDoc.payments : []
 
-  if (originalPayments.length === 0) {
-    return data
+  // Never persist internal source flags if they are accidentally sent in data.
+  const cleanedData = {
+    ...data,
+    paymentsUpdateSource: undefined,
   }
 
-  if (shouldAcceptIncomingPaymentsUpdate(data)) {
-    return data
+  if (originalPayments.length === 0) {
+    return cleanedData
+  }
+
+  if (shouldAcceptIncomingPaymentsUpdate(req)) {
+    return cleanedData
   }
 
   return {
-    ...data,
+    ...cleanedData,
     payments: originalPayments,
   }
 }
@@ -3189,14 +3215,14 @@ export const Reservations: CollectionConfig = {
 
   hooks: {
     beforeChange: [
-      async ({ data, originalDoc, operation }) => {
+      async ({ data, originalDoc, operation, req }) => {
         // Payment ledger safety guard:
         // Only the Payment Schedule Manager direct save is allowed to update payments.
         // Normal Payload page saves can submit stale payments form state, so they must preserve
         // the existing payment ledger.
         if (operation !== 'update') return data
 
-        return preserveExistingPaymentsForNormalReservationSave(data, originalDoc)
+        return preserveExistingPaymentsForNormalReservationSave(data, originalDoc, req)
       },
 
       async ({ data, operation, originalDoc }) => {
@@ -3418,7 +3444,7 @@ export const Reservations: CollectionConfig = {
         try {
           const calculatedData = await calculateReservationTotalForSave({
             req,
-            data: preserveExistingPaymentsForNormalReservationSave(data, originalDoc),
+            data: preserveExistingPaymentsForNormalReservationSave(data, originalDoc, req),
             originalDoc,
           })
 
@@ -3435,7 +3461,7 @@ export const Reservations: CollectionConfig = {
           console.error('Error calculating final reservation total:', error)
 
           const normalisedData = normaliseManualPaymentRowsForSave(
-            preserveExistingPaymentsForNormalReservationSave(data, originalDoc),
+            preserveExistingPaymentsForNormalReservationSave(data, originalDoc, req),
             originalDoc,
           )
 
@@ -3998,13 +4024,6 @@ export const Reservations: CollectionConfig = {
         hidden: true,
         description:
           'Legacy/default method. The Payment Manager row method is the source of truth for each payment.',
-      },
-    },
-    {
-      name: 'paymentsUpdateSource',
-      type: 'text',
-      admin: {
-        hidden: true,
       },
     },
     {
