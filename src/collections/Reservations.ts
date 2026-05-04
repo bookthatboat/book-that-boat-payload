@@ -126,6 +126,75 @@ type InstallmentStage = 'paid' | 'ready_to_be_installed' | 'installed_ready_to_b
 type PaymentKind = 'full' | 'downpayment' | 'installment' | 'balance' | 'adjustment'
 type PaymentStatus = 'scheduled' | 'pending' | 'completed' | 'failed' | 'refunded' | 'cancelled' | 'superseded'
 
+const ACTIVE_RESERVATION_PAYMENT_STATUSES = ['awaiting payment', 'confirmed_balance_due'] as const
+
+const RESERVATION_STATUS_OPTIONS: Array<{ label: string; value: ReservationStatus }> = [
+  { label: 'Pending', value: 'pending' },
+  { label: 'Awaiting Payment', value: 'awaiting payment' },
+  { label: 'Confirmed - Balance Due', value: 'confirmed_balance_due' },
+  { label: 'Confirmed', value: 'confirmed' },
+  { label: 'Cancelled', value: 'cancelled' },
+]
+
+const ACTIVE_PAYMENT_ROW_STATUSES = new Set(['scheduled', 'pending', 'completed'])
+
+const getReservationPaymentTotals = (payments: any[] | undefined, totalPrice: number) => {
+  const activePayments = Array.isArray(payments)
+    ? payments.filter((payment) => ACTIVE_PAYMENT_ROW_STATUSES.has(payment?.status || ''))
+    : []
+
+  const paidAmount = activePayments.reduce((sum, payment) => {
+    if (payment?.status !== 'completed') return sum
+    return sum + Number(payment.amount || 0)
+  }, 0)
+
+  const activeTotal = activePayments.reduce((sum, payment) => {
+    return sum + Number(payment.amount || 0)
+  }, 0)
+
+  const roundedPaid = Math.round(paidAmount)
+  const roundedTotal = Math.round(Number(totalPrice || 0))
+
+  return {
+    activePayments,
+    paidAmount,
+    activeTotal,
+    isFullyPaid: roundedTotal > 0 && roundedPaid >= roundedTotal,
+    hasPartialPayment: roundedPaid > 0 && roundedPaid < roundedTotal,
+    hasOutstandingPayment:
+      roundedTotal > 0 &&
+      (roundedPaid < roundedTotal ||
+        activePayments.some((payment) => payment?.status === 'scheduled' || payment?.status === 'pending')),
+  }
+}
+
+const getReservationStatusFromPayments = ({
+  payments,
+  totalPrice,
+}: {
+  payments: any[] | undefined
+  totalPrice: number
+}): ReservationStatus => {
+  const totals = getReservationPaymentTotals(payments, totalPrice)
+
+  if (totals.isFullyPaid) return 'confirmed'
+
+  if (totals.hasPartialPayment && totals.hasOutstandingPayment) {
+    return 'confirmed_balance_due'
+  }
+
+  return 'awaiting payment'
+}
+
+const isScheduledPaymentPlan = (reservation: any) => {
+  return (
+    reservation?.paymentMethod === 'scheduled' ||
+    reservation?.paymentMethod === 'installments' ||
+    reservation?.paymentMethod === 'deposit_balance' ||
+    (Array.isArray(reservation?.payments) && reservation.payments.length > 1)
+  )
+}
+
 const MAMO_PROCESSING_FEE_PERCENTAGE = 4
 
 const getPaymentFeeFields = ({
@@ -351,8 +420,8 @@ const checkDueInstallments = async (payload: any) => {
       collection: 'reservations',
       where: {
         and: [
-          { status: { equals: 'awaiting payment' } },
-          { paymentMethod: { equals: 'installments' } },
+          { status: { in: [...ACTIVE_RESERVATION_PAYMENT_STATUSES] } },
+          { paymentMethod: { in: ['installments', 'deposit_balance', 'scheduled'] } },
         ],
       },
       depth: 1,
@@ -578,12 +647,12 @@ const checkPaymentStatuses = async (payload: any) => {
     // IMPORTANT: depth: 0 prevents populate from choking on legacy "" relationship values
     const reservations = await payload.find({
       collection: 'reservations',
-      where: { status: { equals: 'awaiting payment' } },
+      where: { status: { in: [...ACTIVE_RESERVATION_PAYMENT_STATUSES] } },
       depth: 0,
       overrideAccess: true,
     })
 
-    console.log(`Found ${reservations.docs.length} reservations awaiting payment`)
+    console.log(`Found ${reservations.docs.length} reservations with active payment status`)
 
     // Throttle checks per paymentLinkId to avoid MamoPay 429
     const CHECK_THROTTLE_MS = isProduction ? 60 * 1000 : 20 * 1000
@@ -594,7 +663,7 @@ const checkPaymentStatuses = async (payload: any) => {
         if (!reservationId) continue
 
         const payments = Array.isArray(reservation.payments) ? reservation.payments : []
-        const isInstallments = reservation.paymentMethod === 'installments'
+        const isInstallments = isScheduledPaymentPlan(reservation)
 
         const boatId =
           typeof reservation.boat === 'object' ? reservation.boat?.id : reservation.boat
@@ -724,7 +793,14 @@ const checkPaymentStatuses = async (payload: any) => {
             paymentLinkId: linkId, // store REAL id we validated
           }
 
-          const allPaid = updatedPayments.every((pp: any) => pp?.status === 'completed')
+          const nextReservationStatus = getReservationStatusFromPayments({
+            payments: updatedPayments,
+            totalPrice: Number(reservation.totalPrice || 0),
+          })
+
+          const allPaid = nextReservationStatus === 'confirmed'
+          const isFirstSecuringPayment =
+            reservation.status === 'awaiting payment' && nextReservationStatus === 'confirmed_balance_due'
 
           // ✅ Retry-safe update (prevents WriteConflict from “breaking” a reservation forever)
           try {
@@ -734,7 +810,7 @@ const checkPaymentStatuses = async (payload: any) => {
                 id: reservationId,
                 data: {
                   payments: updatedPayments,
-                  status: allPaid ? 'confirmed' : 'awaiting payment',
+                  status: nextReservationStatus,
                   // ✅ Keep top-level accurate for FULL payments
                   ...(isInstallments ? {} : { paymentLinkId: linkId }),
                 },
@@ -751,6 +827,35 @@ const checkPaymentStatuses = async (payload: any) => {
               updateErr,
             )
             continue
+          }
+
+          // Send booking-secured email when first/deposit payment is received but balance remains
+          if (isFirstSecuringPayment) {
+            try {
+              if (user.email) {
+                await sendEmail(
+                  user.email,
+                  `Book That Boat - Booking Confirmed, Balance Due #${reservation.transactionId || reservation.id}`,
+                  getStatusEmailContent('user', 'confirmed_balance_due', boat, user, {
+                    ...reservation,
+                    payments: updatedPayments,
+                    status: nextReservationStatus,
+                  } as Reservation),
+                )
+              }
+
+              await sendEmail(
+                EMAIL_CONFIG.adminEmail,
+                `[Admin] Booking confirmed with balance due: ${boat.name}`,
+                getStatusEmailContent('admin', 'confirmed_balance_due', boat, user, {
+                  ...reservation,
+                  payments: updatedPayments,
+                  status: nextReservationStatus,
+                } as Reservation),
+              )
+            } catch (err) {
+              console.error('Failed sending confirmed balance due emails from polling:', err)
+            }
           }
 
           // Only send "confirmed" emails when fully paid
@@ -1897,6 +2002,241 @@ const getCreativeEmailTemplate = (
   }
 }
 
+
+const getBalanceDueEmailTemplate = (
+  boat: Boat,
+  user: User,
+  reservation: Reservation,
+): string => {
+  const start = asDate(reservation.startTime)
+  const end = asDate(reservation.endTime)
+
+  const dateStr = formatDubaiDate(start)
+  const timeStr = formatDubaiTime(start)
+
+  const diffMs = end.getTime() - start.getTime()
+  const durationHoursRaw = diffMs > 0 ? diffMs / (1000 * 60 * 60) : 0
+  const durationHours =
+    Number.isFinite(durationHoursRaw) && durationHoursRaw > 0
+      ? (Math.round(durationHoursRaw * 10) / 10).toString().replace(/\.0$/, '')
+      : '0'
+
+  const payments = Array.isArray(reservation.payments) ? reservation.payments : []
+  const totalPrice = Number(reservation.totalPrice || 0)
+
+  const paidAmount = payments.reduce((sum, payment) => {
+    if (payment?.status !== 'completed') return sum
+    return sum + Number(payment.amount || 0)
+  }, 0)
+
+  const balanceDue = Math.max(0, Math.round(totalPrice - paidAmount))
+
+  const outstandingPayments = payments.filter((payment) => {
+    return payment?.status === 'scheduled' || payment?.status === 'pending'
+  })
+
+  const nextDuePayment = outstandingPayments[0]
+
+  const getPaymentMethodLabel = (method?: string) => {
+    switch (method) {
+      case 'mamo':
+      case 'mamopay':
+      case 'Mamo Pay':
+        return 'Mamo Pay'
+      case 'bank_transfer':
+      case 'Bank Transfer':
+        return 'Bank Transfer'
+      case 'cash':
+      case 'Cash':
+        return 'Cash'
+      default:
+        return method || 'To be confirmed'
+    }
+  }
+
+  const getSettlementInstruction = (payment: any) => {
+    const method = getPaymentMethodLabel(payment?.method)
+
+    if (method === 'Mamo Pay') {
+      if (payment?.paymentLink) {
+        return `<a href="${payment.paymentLink}" style="color:#0b5ed7;text-decoration:none;font-weight:800;">Pay securely by Mamo Pay</a>`
+      }
+
+      return 'A secure Mamo Pay link will be sent when this payment is due.'
+    }
+
+    if (method === 'Bank Transfer') {
+      return 'Bank transfer details will be shared by our booking team.'
+    }
+
+    if (method === 'Cash') {
+      return 'Cash payment to be settled with the Book That Boat team before departure.'
+    }
+
+    return 'Our booking team will confirm the settlement details.'
+  }
+
+  const nextDueText = nextDuePayment?.date ? safeFormatDate(nextDuePayment.date) : 'To be confirmed'
+
+  const paymentScheduleRows =
+    outstandingPayments.length > 0
+      ? outstandingPayments
+          .map((payment) => {
+            const amount = Math.round(Number(payment?.amount || 0)).toLocaleString()
+            const dueDate = payment?.date ? safeFormatDate(payment.date) : 'To be confirmed'
+            const method = getPaymentMethodLabel(payment?.method)
+            const instruction = getSettlementInstruction(payment)
+
+            return `
+              <tr>
+                <td style="padding:12px;background:#ffffff;border-bottom:1px solid #e5e7eb;color:#111827;font-weight:800;">AED ${amount}</td>
+                <td style="padding:12px;background:#ffffff;border-bottom:1px solid #e5e7eb;color:#111827;">${dueDate}</td>
+                <td style="padding:12px;background:#ffffff;border-bottom:1px solid #e5e7eb;color:#111827;">${method}</td>
+                <td style="padding:12px;background:#ffffff;border-bottom:1px solid #e5e7eb;color:#374151;">${instruction}</td>
+              </tr>
+            `
+          })
+          .join('')
+      : `
+          <tr>
+            <td colspan="4" style="padding:12px;background:#ffffff;color:#374151;text-align:center;">
+              No future payment rows are currently scheduled. Our team will contact you if any balance remains.
+            </td>
+          </tr>
+        `
+
+  const departureLocation =
+    (reservation as any)?.departureLocation ||
+    (reservation as any)?.location ||
+    (boat as any)?.departureLocation ||
+    (boat as any)?.location?.name ||
+    (boat as any)?.location?.harbour ||
+    (boat as any)?.location?.city ||
+    (boat as any)?.harbour?.name ||
+    'Dubai'
+
+  const bookingId = reservation.transactionId || reservation.id
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Booking Confirmed - Balance Due</title>
+    </head>
+    <body style="margin:0;padding:0;background:#f5f7fb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Arial,Helvetica,sans-serif;color:#0f172a;">
+      <div style="max-width:640px;margin:0 auto;padding:32px 16px;">
+        <div style="text-align:center;margin-bottom:18px;">
+          <img
+            src="https://iqs9cmwxvznbiu7f.public.blob.vercel-storage.com/bookthatboat-1.png"
+            alt="Book That Boat"
+            width="160"
+            style="display:inline-block;height:auto;border:0;outline:none;text-decoration:none;"
+          />
+        </div>
+
+        <div style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 10px 28px rgba(15,23,42,0.10);border:1px solid #e5e7eb;">
+          <div style="background:linear-gradient(135deg,#0b5ed7 0%,#0a3d91 100%);padding:22px 18px;text-align:center;">
+            <div style="font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:rgba(255,255,255,0.85);font-weight:700;">
+              Booking Confirmed - Balance Due
+            </div>
+            <div style="margin-top:10px;display:inline-block;padding:7px 12px;border-radius:999px;background:rgba(255,255,255,0.14);border:1px solid rgba(255,255,255,0.22);color:#ffffff;font-size:12px;font-weight:700;">
+              Booking #${bookingId}
+            </div>
+          </div>
+
+          <div style="padding:18px 22px 26px 22px;">
+            <p style="margin:0 0 14px 0;font-size:14px;line-height:1.7;color:#374151;">
+              Dear <strong style="color:#111827;">${reservation.guestName || user.name || 'Customer'}</strong>,
+              <br />
+              Thank you, we have received your payment and your booking is now secured. A balance remains due before your trip.
+            </p>
+
+            <div style="border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
+              <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;font-size:14px;">
+                <tr>
+                  <td style="width:42%;padding:12px;background:#f3f4f6;border-bottom:1px solid #e5e7eb;color:#111827;font-weight:700;">Boat</td>
+                  <td style="padding:12px;background:#ffffff;border-bottom:1px solid #e5e7eb;color:#111827;">${boat.name}</td>
+                </tr>
+                <tr>
+                  <td style="padding:12px;background:#f3f4f6;border-bottom:1px solid #e5e7eb;color:#111827;font-weight:700;">Date</td>
+                  <td style="padding:12px;background:#ffffff;border-bottom:1px solid #e5e7eb;color:#111827;">${dateStr}</td>
+                </tr>
+                <tr>
+                  <td style="padding:12px;background:#f3f4f6;border-bottom:1px solid #e5e7eb;color:#111827;font-weight:700;">Time</td>
+                  <td style="padding:12px;background:#ffffff;border-bottom:1px solid #e5e7eb;color:#111827;">${timeStr}</td>
+                </tr>
+                <tr>
+                  <td style="padding:12px;background:#f3f4f6;border-bottom:1px solid #e5e7eb;color:#111827;font-weight:700;">Duration</td>
+                  <td style="padding:12px;background:#ffffff;border-bottom:1px solid #e5e7eb;color:#111827;">${durationHours} hours</td>
+                </tr>
+                <tr>
+                  <td style="padding:12px;background:#f3f4f6;border-bottom:1px solid #e5e7eb;color:#111827;font-weight:700;">Departure Location</td>
+                  <td style="padding:12px;background:#ffffff;border-bottom:1px solid #e5e7eb;color:#111827;">${departureLocation}</td>
+                </tr>
+                <tr>
+                  <td style="padding:12px;background:#f3f4f6;border-bottom:1px solid #e5e7eb;color:#111827;font-weight:800;">Paid So Far</td>
+                  <td style="padding:12px;background:#ffffff;border-bottom:1px solid #e5e7eb;color:#16a34a;font-weight:900;">AED ${Math.round(paidAmount).toLocaleString()}</td>
+                </tr>
+                <tr>
+                  <td style="padding:12px;background:#f3f4f6;border-bottom:1px solid #e5e7eb;color:#111827;font-weight:800;">Balance Due</td>
+                  <td style="padding:12px;background:#ffffff;border-bottom:1px solid #e5e7eb;color:#ef6c00;font-weight:900;">AED ${balanceDue.toLocaleString()}</td>
+                </tr>
+                <tr>
+                  <td style="padding:12px;background:#f3f4f6;color:#111827;font-weight:800;">Next Due Date</td>
+                  <td style="padding:12px;background:#ffffff;color:#111827;font-weight:700;">${nextDueText}</td>
+                </tr>
+              </table>
+            </div>
+
+            <div style="margin-top:18px;">
+              <h3 style="margin:0 0 10px 0;font-size:16px;line-height:1.4;color:#111827;">
+                Remaining Payment Schedule
+              </h3>
+
+              <div style="border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
+                <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;font-size:13px;">
+                  <thead>
+                    <tr>
+                      <th align="left" style="padding:11px;background:#f3f4f6;border-bottom:1px solid #e5e7eb;color:#111827;">Amount</th>
+                      <th align="left" style="padding:11px;background:#f3f4f6;border-bottom:1px solid #e5e7eb;color:#111827;">Due Date</th>
+                      <th align="left" style="padding:11px;background:#f3f4f6;border-bottom:1px solid #e5e7eb;color:#111827;">Method</th>
+                      <th align="left" style="padding:11px;background:#f3f4f6;border-bottom:1px solid #e5e7eb;color:#111827;">How to Pay</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${paymentScheduleRows}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div style="margin-top:16px;padding:14px;border-radius:12px;background:#f8fafc;border:1px solid #e5e7eb;">
+              <p style="margin:0;font-size:13px;line-height:1.7;color:#374151;">
+                Please ensure the remaining balance is settled by the due date shown above and before departure. If a Mamo Pay link is not yet available, our system will send it when that scheduled payment becomes due.
+              </p>
+            </div>
+
+            <p style="margin:16px 0 0 0;font-size:13px;line-height:1.7;color:#374151;">
+              If you have any questions, please contact our team on
+              <a href="https://api.whatsapp.com/send?phone=97143408933&text=Hi%20Book%20That%20Boat!%20I%20need%20help%20with%20my%20booking."
+                 style="color:#0b5ed7;text-decoration:none;font-weight:700;">WhatsApp by clicking here</a>.
+            </p>
+
+            <p style="margin:18px 0 0 0;font-size:13px;line-height:1.7;color:#374151;">
+              Best regards,<br />
+              <strong style="color:#111827;">The Booking Team @ Book That Boat</strong>
+            </p>
+          </div>
+        </div>
+      </div>
+    </body>
+    </html>
+  `
+}
+
+
 const getStatusEmailContent = (
   recipient: 'user' | 'admin',
   status: ReservationStatus,
@@ -1909,6 +2249,10 @@ const getStatusEmailContent = (
   }
 
   if (recipient === 'user') {
+    if (status === 'confirmed_balance_due') {
+      return getBalanceDueEmailTemplate(boat, user, reservation)
+    }
+
     return getCreativeEmailTemplate(status, boat, user, reservation)
   }
 
@@ -2351,7 +2695,7 @@ const validateReservationPaymentSchedule = ({
   const totalPrice = Number(data?.totalPrice ?? originalDoc?.totalPrice ?? 0)
   const nextStatus = data?.status || originalDoc?.status
 
-  const mustHaveFullSchedule = ['awaiting payment', 'confirmed'].includes(nextStatus)
+  const mustHaveFullSchedule = ['awaiting payment', 'confirmed_balance_due', 'confirmed'].includes(nextStatus)
 
   if (mustHaveFullSchedule && Math.round(activeScheduledTotal) < Math.round(totalPrice)) {
     throw new Error(
@@ -3650,7 +3994,9 @@ export const Reservations: CollectionConfig = {
 
         // Don't process if this is a payment confirmation (handled by polling)
         const isPaymentConfirmation =
-          !req.user && previousDoc?.status === 'awaiting payment' && doc.status === 'confirmed'
+          !req.user &&
+          previousDoc?.status === 'awaiting payment' &&
+          ['confirmed', 'confirmed_balance_due'].includes(doc.status)
 
         // ✅ FIX: prevent double confirmed emails (polling sends, afterChange skips)
         if ((!shouldProcessStatusChange && !shouldProcessPaymentLink) || isPaymentConfirmation)
@@ -4050,10 +4396,7 @@ export const Reservations: CollectionConfig = {
     {
       name: 'status',
       type: 'select',
-      options: ['pending', 'confirmed', 'cancelled', 'awaiting payment'].map((option) => ({
-        label: option.charAt(0).toUpperCase() + option.slice(1),
-        value: option,
-      })),
+      options: RESERVATION_STATUS_OPTIONS,
       defaultValue: 'pending',
     },
     {
