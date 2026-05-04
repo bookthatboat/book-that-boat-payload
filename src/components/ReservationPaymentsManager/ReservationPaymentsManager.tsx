@@ -125,6 +125,19 @@ const writeSavedPaymentsToSession = (reservationId: string, payments: PaymentRow
   }
 }
 
+const dispatchPaymentsUpdatedEvent = (reservationId: string, payments: PaymentRow[]) => {
+  if (typeof window === 'undefined') return
+
+  window.dispatchEvent(
+    new CustomEvent('reservation-payments-updated', {
+      detail: {
+        reservationId,
+        payments,
+      },
+    }),
+  )
+}
+
 const fetchReservationPayments = async (reservationId: string): Promise<PaymentRow[] | null> => {
   const response = await fetch(`/api/reservations/${reservationId}?depth=0`, {
     method: 'GET',
@@ -516,6 +529,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
       setLocalPayments(paymentsToRender)
       setPaymentsValue(paymentsToRender)
       writeSavedPaymentsToSession(reservationId, paymentsToRender)
+      dispatchPaymentsUpdatedEvent(reservationId, paymentsToRender)
 
       setSaveMessage(`Payment schedule saved. Rows saved: ${paymentsToRender.length}.`)
     } catch (error) {
@@ -531,6 +545,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
 
     if (reservationIdForState && nextPayments.length > 0) {
       writeSavedPaymentsToSession(reservationIdForState, nextPayments)
+      dispatchPaymentsUpdatedEvent(reservationIdForState, nextPayments)
     }
 
     setSaveMessage('')

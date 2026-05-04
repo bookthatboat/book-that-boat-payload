@@ -223,6 +223,35 @@ const styles = {
   } as React.CSSProperties,
 }
 
+const getReservationIdFromAdminUrl = (): string | null => {
+  if (typeof window === 'undefined') return null
+
+  const match = window.location.pathname.match(/\/admin\/collections\/reservations\/([^/?#]+)/)
+  const reservationId = match?.[1]
+
+  if (!reservationId || reservationId === 'create') return null
+
+  return decodeURIComponent(reservationId)
+}
+
+const getPaymentSessionKey = (reservationId: string) => {
+  return `reservation-payments:${reservationId}`
+}
+
+const readPaymentsFromSession = (reservationId: string): PaymentRow[] | null => {
+  if (typeof window === 'undefined') return null
+
+  try {
+    const raw = window.sessionStorage.getItem(getPaymentSessionKey(reservationId))
+    if (!raw) return null
+
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
 export function ReservationPriceCalculator() {
   const { value: boatValue } = useField<RelationshipValue>({ path: 'boat' })
   const { value: startTime } = useField<string>({ path: 'startTime' })
@@ -253,10 +282,73 @@ export function ReservationPriceCalculator() {
     () => (Array.isArray(otherExtrasValue) ? otherExtrasValue : []),
     [otherExtrasValue],
   )
-  const payments = useMemo(
-    () => (Array.isArray(paymentsValue) ? paymentsValue : []),
-    [paymentsValue],
-  )
+  const reservationIdForPayments = getReservationIdFromAdminUrl()
+
+  const [livePayments, setLivePayments] = useState<PaymentRow[]>(() => {
+    if (reservationIdForPayments) {
+      const sessionPayments = readPaymentsFromSession(reservationIdForPayments)
+      if (sessionPayments && sessionPayments.length > 0) return sessionPayments
+    }
+
+    return Array.isArray(paymentsValue) ? paymentsValue : []
+  })
+
+  const paymentsValueKey = useMemo(() => {
+    if (!Array.isArray(paymentsValue)) return '[]'
+
+    return JSON.stringify(
+      paymentsValue.map((payment) => ({
+        id: payment?.id,
+        amount: payment?.amount,
+        method: payment?.method,
+        status: payment?.status,
+        date: payment?.date,
+        paidAt: payment?.paidAt,
+        paymentLink: payment?.paymentLink,
+        paymentLinkId: payment?.paymentLinkId,
+      })),
+    )
+  }, [paymentsValue])
+
+  useEffect(() => {
+    if (Array.isArray(paymentsValue) && paymentsValue.length > 0) {
+      setLivePayments(paymentsValue)
+      return
+    }
+
+    if (reservationIdForPayments) {
+      const sessionPayments = readPaymentsFromSession(reservationIdForPayments)
+      if (sessionPayments && sessionPayments.length > 0) {
+        setLivePayments(sessionPayments)
+      }
+    }
+  }, [paymentsValueKey, paymentsValue, reservationIdForPayments])
+
+  useEffect(() => {
+    const handlePaymentsUpdated = (event: Event) => {
+      const customEvent = event as CustomEvent<{ reservationId?: string; payments?: PaymentRow[] }>
+
+      if (
+        reservationIdForPayments &&
+        customEvent.detail?.reservationId &&
+        customEvent.detail.reservationId !== reservationIdForPayments
+      ) {
+        return
+      }
+
+      if (Array.isArray(customEvent.detail?.payments)) {
+        setLivePayments(customEvent.detail.payments)
+      }
+    }
+
+    window.addEventListener('reservation-payments-updated', handlePaymentsUpdated)
+
+    return () => {
+      window.removeEventListener('reservation-payments-updated', handlePaymentsUpdated)
+    }
+  }, [reservationIdForPayments])
+
+  const payments = livePayments
 
   useEffect(() => {
     if (!boatId) {
