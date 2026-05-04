@@ -216,35 +216,6 @@ const styles = {
     fontWeight: 800,
     color: 'var(--theme-success-500)',
   } as React.CSSProperties,
-  tableWrap: {
-    padding: 16,
-    borderTop: '1px solid var(--theme-elevation-150)',
-    overflowX: 'auto',
-  } as React.CSSProperties,
-  table: {
-    width: '100%',
-    borderCollapse: 'collapse',
-    fontSize: 13,
-  } as React.CSSProperties,
-  th: {
-    textAlign: 'left',
-    padding: '8px 10px',
-    borderBottom: '1px solid var(--theme-elevation-150)',
-    color: 'var(--theme-elevation-500)',
-    whiteSpace: 'nowrap',
-  } as React.CSSProperties,
-  td: {
-    padding: '9px 10px',
-    borderBottom: '1px solid var(--theme-elevation-100)',
-    whiteSpace: 'nowrap',
-  } as React.CSSProperties,
-  badge: {
-    display: 'inline-flex',
-    border: '1px solid var(--theme-elevation-200)',
-    borderRadius: 999,
-    padding: '3px 8px',
-    background: 'var(--theme-elevation-100)',
-  } as React.CSSProperties,
   error: {
     padding: 16,
     color: 'var(--theme-error-500)',
@@ -548,10 +519,9 @@ export function ReservationPriceCalculator() {
       <div style={styles.header}>
         <h3 style={styles.title}>Live Reservation Price</h3>
         <p style={styles.help}>
-          This preview updates when the boat, time, extras, additional items, coupon, or custom
-          discount changes. The backend recalculates and reconciles payment links again on save.
-          If the payment collection method changes, unpaid pending payment rows are superseded and
-          replaced with the correct new payment method.
+          This summary updates when the boat, time, extras, additional items, coupon, or custom
+          discount changes. Manage all payment rows, due dates, received dates, methods, links and
+          statuses in the Payment Schedule Manager below.
         </p>
       </div>
 
@@ -624,66 +594,6 @@ export function ReservationPriceCalculator() {
         Pending / scheduled: {money(calculation.pendingAmount)}
       </div>
 
-      <div style={styles.tableWrap}>
-        <h4 style={{ margin: '0 0 10px' }}>Payment Ledger</h4>
-
-        {payments.length === 0 ? (
-          <p style={styles.help}>No payment rows yet. Payment rows are created when payment is requested.</p>
-        ) : (
-          <table style={styles.table}>
-            <thead>
-              <tr>
-                <th style={styles.th}>Kind</th>
-                <th style={styles.th}>Method</th>
-                <th style={styles.th}>Amount</th>
-                <th style={styles.th}>Fee</th>
-                <th style={styles.th}>Customer Pays</th>
-                <th style={styles.th}>Scheduled Due Date</th>
-                <th style={styles.th}>Status</th>
-                <th style={styles.th}>Received Date</th>
-                <th style={styles.th}>Link</th>
-                <th style={styles.th}>Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {payments.map((payment, index) => {
-                const feeDisplay = getPaymentFeeDisplay(payment)
-
-                return (
-                  <tr key={payment.id || index}>
-                    <td style={styles.td}>{payment.kind || '-'}</td>
-                    <td style={styles.td}>{payment.method || '-'}</td>
-                    <td style={styles.td}>{money(toNumber(payment.amount))}</td>
-                    <td style={styles.td}>
-                      {payment.method === 'Mamo Pay'
-                        ? `${money(feeDisplay.feeAmount)} (${feeDisplay.percentage}%)`
-                        : money(0)}
-                    </td>
-                    <td style={styles.td}>{money(feeDisplay.customerPayableAmount)}</td>
-                    <td style={styles.td}>{formatDate(payment.date)}</td>
-                    <td style={styles.td}>
-                      <span style={styles.badge}>{payment.status || '-'}</span>
-                    </td>
-                    <td style={styles.td}>{formatDate(payment.paidAt)}</td>
-                    <td style={styles.td}>
-                      {payment.paymentLink ? (
-                        <a href={payment.paymentLink} target="_blank" rel="noreferrer">
-                          Open
-                        </a>
-                      ) : (
-                        '-'
-                      )}
-                    </td>
-                    <td style={{ ...styles.td, whiteSpace: 'normal', minWidth: 220 }}>
-                      {payment.notes || '-'}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
     </div>
   )
 }

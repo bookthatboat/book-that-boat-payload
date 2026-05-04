@@ -2512,28 +2512,27 @@ const activateDueScheduledPayments = async (payload: any) => {
   }
 }
 
-const preserveExistingPaymentsIfOmitted = (data: any, originalDoc?: any) => {
+const shouldAcceptIncomingPaymentsUpdate = (data: any) => {
+  return data?.paymentsUpdateSource === 'payment-manager'
+}
+
+const preserveExistingPaymentsForNormalReservationSave = (data: any, originalDoc?: any) => {
   const originalPayments = Array.isArray(originalDoc?.payments) ? originalDoc.payments : []
 
   if (originalPayments.length === 0) {
     return data
   }
 
-  const incomingPayments = data?.payments
-
-  const paymentsWereOmitted = incomingPayments === undefined || incomingPayments === null
-  const paymentsWereAccidentallyEmptied =
-    Array.isArray(incomingPayments) && incomingPayments.length === 0
-
-  if (paymentsWereOmitted || paymentsWereAccidentallyEmptied) {
-    return {
-      ...data,
-      payments: originalPayments,
-    }
+  if (shouldAcceptIncomingPaymentsUpdate(data)) {
+    return data
   }
 
-  return data
+  return {
+    ...data,
+    payments: originalPayments,
+  }
 }
+
 
 const normaliseManualPaymentRowsForSave = (data: any, originalDoc?: any) => {
   const payments = Array.isArray(data?.payments)
@@ -3189,32 +3188,13 @@ export const Reservations: CollectionConfig = {
   hooks: {
     beforeChange: [
       async ({ data, originalDoc, operation }) => {
-        // Safety guard:
-        // The custom Payment Schedule Manager saves payments correctly through its direct API call,
-        // but the normal Payload page save can sometimes submit an empty/missing payments array.
-        // Without this guard, a normal page save can wipe the existing payment ledger.
+        // Payment ledger safety guard:
+        // Only the Payment Schedule Manager direct save is allowed to update payments.
+        // Normal Payload page saves can submit stale payments form state, so they must preserve
+        // the existing payment ledger.
         if (operation !== 'update') return data
 
-        const existingPayments = Array.isArray((originalDoc as any)?.payments)
-          ? (originalDoc as any).payments
-          : []
-
-        if (existingPayments.length === 0) return data
-
-        const incomingPayments = (data as any)?.payments
-
-        const paymentsWereOmitted = incomingPayments === undefined || incomingPayments === null
-        const paymentsWereSubmittedEmpty =
-          Array.isArray(incomingPayments) && incomingPayments.length === 0
-
-        if (paymentsWereOmitted || paymentsWereSubmittedEmpty) {
-          return {
-            ...data,
-            payments: existingPayments,
-          }
-        }
-
-        return data
+        return preserveExistingPaymentsForNormalReservationSave(data, originalDoc)
       },
 
       async ({ data, operation, originalDoc }) => {
@@ -3436,7 +3416,7 @@ export const Reservations: CollectionConfig = {
         try {
           const calculatedData = await calculateReservationTotalForSave({
             req,
-            data: preserveExistingPaymentsIfOmitted(data, originalDoc),
+            data: preserveExistingPaymentsForNormalReservationSave(data, originalDoc),
             originalDoc,
           })
 
@@ -3453,7 +3433,7 @@ export const Reservations: CollectionConfig = {
           console.error('Error calculating final reservation total:', error)
 
           const normalisedData = normaliseManualPaymentRowsForSave(
-            preserveExistingPaymentsIfOmitted(data, originalDoc),
+            preserveExistingPaymentsForNormalReservationSave(data, originalDoc),
             originalDoc,
           )
 
@@ -4016,6 +3996,13 @@ export const Reservations: CollectionConfig = {
         hidden: true,
         description:
           'Legacy/default method. The Payment Manager row method is the source of truth for each payment.',
+      },
+    },
+    {
+      name: 'paymentsUpdateSource',
+      type: 'text',
+      admin: {
+        hidden: true,
       },
     },
     {
