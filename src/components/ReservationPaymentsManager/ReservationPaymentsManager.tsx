@@ -349,6 +349,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
         },
         body: JSON.stringify({
           payments: nextPayments,
+          paymentsUpdateSource: 'payment-manager',
         }),
       })
 
