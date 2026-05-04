@@ -2553,18 +2553,23 @@ const preserveExistingPaymentsForNormalReservationSave = (
   context?: any,
 ) => {
   const originalPayments = Array.isArray(originalDoc?.payments) ? originalDoc.payments : []
+  const isPaymentManagerUpdate = shouldAcceptIncomingPaymentsUpdate(data, req, context)
 
-  // Never persist internal source flags if they are accidentally sent in data.
+  // Important:
+  // If this is a Payment Schedule Manager save, keep the internal source flag alive
+  // through the whole beforeChange hook chain. A later hook also calls this helper.
+  // If we strip it too early, the later hook can treat the same request as a normal
+  // Payload page save and restore the old payment ledger.
+  if (isPaymentManagerUpdate) {
+    return data
+  }
+
   const cleanedData = {
     ...data,
     paymentsUpdateSource: undefined,
   }
 
   if (originalPayments.length === 0) {
-    return cleanedData
-  }
-
-  if (shouldAcceptIncomingPaymentsUpdate(data, req, context)) {
     return cleanedData
   }
 
@@ -3254,6 +3259,7 @@ export const Reservations: CollectionConfig = {
 
         return Response.json({
           doc: updatedDoc,
+          submittedPaymentsCount: payments.length,
           paymentsCount: Array.isArray((updatedDoc as any)?.payments)
             ? (updatedDoc as any).payments.length
             : 0,
@@ -3534,6 +3540,16 @@ export const Reservations: CollectionConfig = {
 
           return normalisedData
         }
+      },
+      async ({ data }) => {
+        // Remove internal payment-manager marker before final persistence.
+        // It is not a real collection field and is only needed during beforeChange hooks.
+        if ((data as any)?.paymentsUpdateSource) {
+          const { paymentsUpdateSource, ...cleanData } = data as any
+          return cleanData
+        }
+
+        return data
       },
     ],
     afterChange: [
