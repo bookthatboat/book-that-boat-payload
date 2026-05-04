@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useField } from '@payloadcms/ui'
 
 type PaymentMethod = 'Mamo Pay' | 'Bank Transfer' | 'Cash'
@@ -274,10 +274,41 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
   })
 
   const totalPrice = Math.max(0, Math.round(toNumber(totalPriceValue)))
-  const payments = useMemo(
-    () => (Array.isArray(paymentsValue) ? paymentsValue : []),
-    [paymentsValue],
+  const [localPayments, setLocalPayments] = useState<PaymentRow[]>(() =>
+    Array.isArray(paymentsValue) ? paymentsValue : [],
   )
+
+  const paymentsValueKey = useMemo(() => {
+    if (!Array.isArray(paymentsValue)) return '[]'
+
+    return JSON.stringify(
+      paymentsValue.map((payment) => ({
+        id: payment?.id,
+        amount: payment?.amount,
+        method: payment?.method,
+        status: payment?.status,
+        date: payment?.date,
+        paidAt: payment?.paidAt,
+        paymentLink: payment?.paymentLink,
+        paymentLinkId: payment?.paymentLinkId,
+      })),
+    )
+  }, [paymentsValue])
+
+  useEffect(() => {
+    if (!Array.isArray(paymentsValue)) return
+
+    setLocalPayments((currentPayments) => {
+      // Do not let an empty/stale Payload form value wipe local rows that were just saved.
+      if (paymentsValue.length === 0 && currentPayments.length > 0) {
+        return currentPayments
+      }
+
+      return paymentsValue
+    })
+  }, [paymentsValueKey, paymentsValue])
+
+  const payments = localPayments
 
   const [isSavingPayments, setIsSavingPayments] = useState(false)
   const [saveMessage, setSaveMessage] = useState('')
@@ -412,17 +443,16 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
         )
       }
 
-      if (Array.isArray(savedPayments) && savedPayments.length > 0) {
-        setPaymentsValue(savedPayments)
-      } else {
-        // Never clear local rows because of a partial or missing API response.
-        setPaymentsValue(nextPayments)
-      }
+      const paymentsToRender =
+        Array.isArray(savedPayments) && savedPayments.length > 0 ? savedPayments : nextPayments
+
+      // Update local render state first so the table does not disappear even if Payload's
+      // internal form state is stale or temporarily empty.
+      setLocalPayments(paymentsToRender)
+      setPaymentsValue(paymentsToRender)
 
       setSaveMessage(
-        `Payment schedule saved. Rows saved: ${
-          Array.isArray(savedPayments) ? savedPayments.length : nextPayments.length
-        }.`,
+        `Payment schedule saved. Rows saved: ${paymentsToRender.length}.`,
       )
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : 'Could not save payment schedule.')
@@ -432,6 +462,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
   }
 
   const updatePayments = (nextPayments: PaymentRow[]) => {
+    setLocalPayments(nextPayments)
     setPaymentsValue(nextPayments)
     setSaveMessage('')
     setSaveError('')
