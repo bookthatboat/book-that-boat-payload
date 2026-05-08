@@ -503,14 +503,14 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
 
       return {
         ...payment,
-        id: payment.id || `payment-${Date.now()}-${index}`,
+        id: payment.id || `payment-${index}`,
         kind: payment.kind || (paymentPlanValue === 'full' ? 'full' : 'balance'),
         amount,
         method,
         status,
-        date: payment.date || new Date().toISOString(),
-        createdAt: payment.createdAt || new Date().toISOString(),
-        paidAt: status === 'completed' ? payment.paidAt || new Date().toISOString() : payment.paidAt || '',
+        date: payment.date || '',
+        createdAt: payment.createdAt || '',
+        paidAt: status === 'completed' ? payment.paidAt || '' : payment.paidAt || '',
         installmentStage:
           status === 'completed'
             ? 'paid'
@@ -575,7 +575,14 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
         }),
       })
 
-      const json = await response.json().catch(() => null)
+      const responseText = await response.text()
+      let json: any = null
+
+      try {
+        json = responseText ? JSON.parse(responseText) : null
+      } catch {
+        json = null
+      }
 
       console.info('Payment schedule save response', {
         status: response.status,
@@ -583,6 +590,9 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
         paymentsCount: json?.paymentsCount,
         savedPaymentsLength: Array.isArray(json?.savedPayments) ? json.savedPayments.length : null,
         docPaymentsLength: Array.isArray(json?.doc?.payments) ? json.doc.payments.length : null,
+        message: json?.message,
+        errors: json?.errors,
+        rawResponse: json ? undefined : responseText,
       })
 
       if (!response.ok) {
