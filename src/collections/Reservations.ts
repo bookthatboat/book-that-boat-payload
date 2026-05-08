@@ -3710,6 +3710,20 @@ const updateBoatReservationCount = async ({
   })
 }
 
+const getSavePaymentsErrorDetails = (error: unknown) => {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+    }
+  }
+
+  return {
+    message: String(error),
+  }
+}
+
 export const Reservations: CollectionConfig = {
   slug: 'reservations',
   endpoints: [
@@ -3720,62 +3734,86 @@ export const Reservations: CollectionConfig = {
         const routeParams = (req as any).routeParams || {}
         const id = Array.isArray(routeParams.id) ? routeParams.id[0] : routeParams.id
 
-        if (!id) {
+        try {
+          if (!id) {
+            return Response.json(
+              {
+                message: 'Missing reservation ID.',
+              },
+              {
+                status: 400,
+              },
+            )
+          }
+
+          const body =
+            typeof req.json === 'function'
+              ? await req.json().catch(() => null)
+              : (req as any).body || null
+
+          const payments = Array.isArray(body?.payments) ? body.payments : []
+
+          const updatedDoc = await req.payload.update({
+            collection: 'reservations',
+            id,
+            data: {
+              payments,
+              paymentsUpdateSource: 'payment-manager',
+            } as any,
+            overrideAccess: true,
+            context: {
+              paymentsUpdateSource: 'payment-manager',
+            },
+          })
+
+          const savedPayments = Array.isArray((updatedDoc as any)?.payments)
+            ? (updatedDoc as any).payments
+            : []
+
+          if (payments.length > 0 && savedPayments.length === 0) {
+            return Response.json(
+              {
+                message:
+                  'Payment rows were submitted but the saved reservation returned zero payment rows.',
+                submittedPaymentsCount: payments.length,
+                paymentsCount: 0,
+                submittedPayments: payments,
+              },
+              {
+                status: 500,
+              },
+            )
+          }
+
+          return Response.json({
+            doc: updatedDoc,
+            submittedPaymentsCount: payments.length,
+            paymentsCount: savedPayments.length,
+            savedPayments,
+          })
+        } catch (error) {
+          const errorDetails = getSavePaymentsErrorDetails(error)
+
+          console.error('[save-payments] failed', {
+            reservationId: id,
+            error: errorDetails,
+          })
+
           return Response.json(
             {
-              message: 'Missing reservation ID.',
-            },
-            {
-              status: 400,
-            },
-          )
-        }
-
-        const body =
-          typeof req.json === 'function'
-            ? await req.json().catch(() => null)
-            : (req as any).body || null
-
-        const payments = Array.isArray(body?.payments) ? body.payments : []
-
-        const updatedDoc = await req.payload.update({
-          collection: 'reservations',
-          id,
-          data: {
-            payments,
-            paymentsUpdateSource: 'payment-manager',
-          } as any,
-          overrideAccess: true,
-          context: {
-            paymentsUpdateSource: 'payment-manager',
-          },
-        })
-
-        const savedPayments = Array.isArray((updatedDoc as any)?.payments)
-          ? (updatedDoc as any).payments
-          : []
-
-        if (payments.length > 0 && savedPayments.length === 0) {
-          return Response.json(
-            {
-              message:
-                'Payment rows were submitted but the saved reservation returned zero payment rows.',
-              submittedPaymentsCount: payments.length,
-              paymentsCount: 0,
-              submittedPayments: payments,
+              message: errorDetails.message || 'Something went wrong.',
+              errors: [
+                {
+                  message: errorDetails.message || 'Something went wrong.',
+                },
+              ],
+              errorDetails,
             },
             {
               status: 500,
             },
           )
         }
-
-        return Response.json({
-          doc: updatedDoc,
-          submittedPaymentsCount: payments.length,
-          paymentsCount: savedPayments.length,
-          savedPayments,
-        })
       },
     },
   ],
