@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useField } from '@payloadcms/ui'
 
 type PaymentMethod = 'Mamo Pay' | 'Bank Transfer' | 'Cash'
@@ -343,6 +343,14 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
     return Array.isArray(paymentsValue) ? paymentsValue : []
   })
 
+  const [hasHydratedPaymentsFromServer, setHasHydratedPaymentsFromServer] = useState(false)
+  const latestPaymentsRef = useRef<PaymentRow[]>(localPayments)
+  const hasUserEditedPaymentsRef = useRef(false)
+
+  useEffect(() => {
+    latestPaymentsRef.current = localPayments
+  }, [localPayments])
+
   const paymentsValueKey = useMemo(() => {
     if (!Array.isArray(paymentsValue)) return '[]'
 
@@ -361,24 +369,107 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
   }, [paymentsValue])
 
   useEffect(() => {
-    if (!Array.isArray(paymentsValue)) return
+    if (!reservationIdForState || hasHydratedPaymentsFromServer) return
 
-    setLocalPayments((currentPayments) => {
-      // Do not let an empty/stale Payload form value wipe local rows that were just saved.
-      if (paymentsValue.length === 0 && currentPayments.length > 0) {
-        return currentPayments
-      }
+    let isActive = true
 
-      if (paymentsValue.length === 0 && reservationIdForState) {
+    const hydratePaymentsFromServer = async () => {
+      try {
+        const serverPayments = await fetchReservationPayments(reservationIdForState)
+
+        if (!isActive) return
+
+        if (Array.isArray(serverPayments) && serverPayments.length > 0) {
+          setLocalPayments(serverPayments)
+          setPaymentsValue(serverPayments)
+          writeSavedPaymentsToSession(reservationIdForState, serverPayments)
+          dispatchPaymentsUpdatedEvent(reservationIdForState, serverPayments)
+          return
+        }
+
         const sessionPayments = readSavedPaymentsFromSession(reservationIdForState)
+
         if (sessionPayments && sessionPayments.length > 0) {
-          return sessionPayments
+          setLocalPayments(sessionPayments)
+          setPaymentsValue(sessionPayments)
+          dispatchPaymentsUpdatedEvent(reservationIdForState, sessionPayments)
+          return
+        }
+
+        if (Array.isArray(paymentsValue) && paymentsValue.length > 0) {
+          setLocalPayments(paymentsValue)
+          writeSavedPaymentsToSession(reservationIdForState, paymentsValue)
+          dispatchPaymentsUpdatedEvent(reservationIdForState, paymentsValue)
+          return
+        }
+
+        setLocalPayments([])
+      } catch (error) {
+        console.error('[ReservationPaymentsManager] Failed to hydrate payments on first load', error)
+
+        if (!isActive) return
+
+        const sessionPayments = readSavedPaymentsFromSession(reservationIdForState)
+
+        if (sessionPayments && sessionPayments.length > 0) {
+          setLocalPayments(sessionPayments)
+          setPaymentsValue(sessionPayments)
+          dispatchPaymentsUpdatedEvent(reservationIdForState, sessionPayments)
+        }
+      } finally {
+        if (isActive) {
+          setHasHydratedPaymentsFromServer(true)
         }
       }
+    }
 
-      return paymentsValue
-    })
-  }, [paymentsValueKey, paymentsValue, reservationIdForState])
+    void hydratePaymentsFromServer()
+
+    return () => {
+      isActive = false
+    }
+  }, [
+    reservationIdForState,
+    hasHydratedPaymentsFromServer,
+    paymentsValue,
+    setPaymentsValue,
+  ])
+
+  useEffect(() => {
+    if (!Array.isArray(paymentsValue)) return
+
+    const nextPayments = paymentsValue.filter(Boolean)
+
+    // Payload admin can initially provide an empty payments array before the
+    // document/custom field has fully hydrated. Do not let that first empty value
+    // clear real saved payments.
+    if (!hasHydratedPaymentsFromServer && nextPayments.length === 0) {
+      return
+    }
+
+    // After hydration, still ignore stale empty form-state updates if we already
+    // have rows locally and the user has not intentionally cleared/edited them.
+    if (
+      hasHydratedPaymentsFromServer &&
+      nextPayments.length === 0 &&
+      latestPaymentsRef.current.length > 0 &&
+      !hasUserEditedPaymentsRef.current
+    ) {
+      return
+    }
+
+    setLocalPayments(nextPayments)
+
+    if (reservationIdForState) {
+      writeSavedPaymentsToSession(reservationIdForState, nextPayments)
+      dispatchPaymentsUpdatedEvent(reservationIdForState, nextPayments)
+    }
+  }, [
+    paymentsValueKey,
+    paymentsValue,
+    hasHydratedPaymentsFromServer,
+    reservationIdForState,
+  ])
 
   const payments = localPayments
 
@@ -537,6 +628,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
       setPaymentsValue(paymentsToRender)
       writeSavedPaymentsToSession(reservationId, paymentsToRender)
       dispatchPaymentsUpdatedEvent(reservationId, paymentsToRender)
+      hasUserEditedPaymentsRef.current = false
 
       setSaveMessage(`Payment schedule saved. Rows saved: ${paymentsToRender.length}.`)
     } catch (error) {
@@ -547,10 +639,12 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
   }
 
   const updatePayments = (nextPayments: PaymentRow[]) => {
+    hasUserEditedPaymentsRef.current = true
+
     setLocalPayments(nextPayments)
     setPaymentsValue(nextPayments)
 
-    if (reservationIdForState && nextPayments.length > 0) {
+    if (reservationIdForState) {
       writeSavedPaymentsToSession(reservationIdForState, nextPayments)
       dispatchPaymentsUpdatedEvent(reservationIdForState, nextPayments)
     }
