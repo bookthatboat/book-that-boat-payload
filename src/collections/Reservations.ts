@@ -2705,7 +2705,9 @@ const validateReservationPaymentSchedule = ({
     )
   }
 
-  if (data?.paymentMethod === 'full') {
+  const isPaymentManagerSave = data?.paymentsUpdateSource === 'payment-manager'
+
+  if (data?.paymentMethod === 'full' && !isPaymentManagerSave) {
     const activeRows = payments.filter(isPaymentActiveForSchedule)
 
     if (activeRows.length > 1) {
