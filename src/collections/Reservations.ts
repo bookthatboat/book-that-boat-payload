@@ -3005,15 +3005,17 @@ const activateDueScheduledPayments = async (payload: any) => {
             id: reservation.id,
             data: {
               payments,
+              paymentsUpdateSource: 'payment-manager',
               ...(latestPaymentLink
                 ? {
                     paymentLink: latestPaymentLink,
                     paymentLinkId: latestPaymentLinkId,
                   }
                 : {}),
-            },
+            } as any,
             overrideAccess: true,
             context: {
+              paymentsUpdateSource: 'payment-manager',
               skipPaymentReconciliation: true,
               skipBalancePaymentLink: true,
             },
