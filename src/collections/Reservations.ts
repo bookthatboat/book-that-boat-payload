@@ -3809,17 +3809,27 @@ export const Reservations: CollectionConfig = {
           const now = new Date()
           const today = startOfUtcDay(now)
 
-          const hasDueScheduledPayment = savedPayments.some((payment: any) => {
-            if (payment?.status !== 'scheduled') return false
+          const shouldRunPaymentActivation = savedPayments.some((payment: any) => {
+            const status = payment?.status || ''
+            const method = payment?.method || 'Mamo Pay'
+            const hasMamoLink = Boolean(payment?.paymentLinkId || payment?.paymentLink)
 
             const dueDate = payment.date ? startOfUtcDay(new Date(payment.date)) : null
+            const isDue =
+              dueDate &&
+              !Number.isNaN(dueDate.getTime()) &&
+              dueDate <= today
 
-            if (!dueDate || Number.isNaN(dueDate.getTime())) return false
+            const isDueScheduledRow = status === 'scheduled' && isDue
+            const isPendingMamoRowMissingLink =
+              status === 'pending' &&
+              method === 'Mamo Pay' &&
+              !hasMamoLink
 
-            return dueDate <= today
+            return isDueScheduledRow || isPendingMamoRowMissingLink
           })
 
-          if (hasDueScheduledPayment) {
+          if (shouldRunPaymentActivation) {
             await activateDueScheduledPayments(req.payload)
 
             responseDoc = await req.payload.findByID({
