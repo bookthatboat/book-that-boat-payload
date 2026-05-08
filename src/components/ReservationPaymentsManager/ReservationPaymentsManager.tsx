@@ -687,15 +687,12 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
         )
       }
 
-      let paymentsToRender =
+      const paymentsToRender =
         Array.isArray(savedPayments) && savedPayments.length > 0 ? savedPayments : paymentsToSave
 
-      const reloadedPayments = await fetchReservationPayments(reservationId)
-
-      if (Array.isArray(reloadedPayments) && reloadedPayments.length > 0) {
-        paymentsToRender = reloadedPayments
-      }
-
+      // The save-payments endpoint already returns the saved payment rows.
+      // Avoid an immediate follow-up reservation GET because it can intermittently 500
+      // during read-after-write/activation timing even though the save itself succeeded.
       // Update local render state first so the table does not disappear even if Payload's
       // internal form state is stale, empty, or remounted after the API save.
       setLocalPayments(paymentsToRender)
