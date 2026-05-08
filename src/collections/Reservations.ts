@@ -3768,8 +3768,9 @@ export const Reservations: CollectionConfig = {
             },
           })
 
-          const savedPayments = Array.isArray((updatedDoc as any)?.payments)
-            ? (updatedDoc as any).payments
+          let responseDoc = updatedDoc
+          let savedPayments = Array.isArray((responseDoc as any)?.payments)
+            ? (responseDoc as any).payments
             : []
 
           if (payments.length > 0 && savedPayments.length === 0) {
@@ -3787,8 +3788,36 @@ export const Reservations: CollectionConfig = {
             )
           }
 
+          const now = new Date()
+          const today = startOfUtcDay(now)
+
+          const hasDueScheduledPayment = savedPayments.some((payment: any) => {
+            if (payment?.status !== 'scheduled') return false
+
+            const dueDate = payment.date ? startOfUtcDay(new Date(payment.date)) : null
+
+            if (!dueDate || Number.isNaN(dueDate.getTime())) return false
+
+            return dueDate <= today
+          })
+
+          if (hasDueScheduledPayment) {
+            await activateDueScheduledPayments(req.payload)
+
+            responseDoc = await req.payload.findByID({
+              collection: 'reservations',
+              id,
+              depth: 2,
+              overrideAccess: true,
+            })
+
+            savedPayments = Array.isArray((responseDoc as any)?.payments)
+              ? (responseDoc as any).payments
+              : []
+          }
+
           return Response.json({
-            doc: updatedDoc,
+            doc: responseDoc,
             submittedPaymentsCount: payments.length,
             paymentsCount: savedPayments.length,
             savedPayments,
