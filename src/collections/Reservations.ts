@@ -2927,13 +2927,25 @@ const activateDueScheduledPayments = async (payload: any) => {
       for (let index = 0; index < payments.length; index++) {
         const payment = payments[index]
 
-        if (payment?.status !== 'scheduled') continue
+        const status = payment?.status || ''
+        const method = payment?.method || 'Mamo Pay'
+        const hasMamoLink = Boolean(payment?.paymentLinkId || payment?.paymentLink)
 
         const dueDate = payment.date ? startOfUtcDay(new Date(payment.date)) : null
+        const isDue =
+          dueDate &&
+          !Number.isNaN(dueDate.getTime()) &&
+          dueDate <= today
 
-        if (!dueDate || Number.isNaN(dueDate.getTime()) || dueDate > today) continue
+        const shouldActivateScheduledRow = status === 'scheduled' && isDue
+        const shouldCreateMissingPendingMamoLink =
+          status === 'pending' &&
+          method === 'Mamo Pay' &&
+          !hasMamoLink
 
-        if (payment.method === 'Mamo Pay') {
+        if (!shouldActivateScheduledRow && !shouldCreateMissingPendingMamoLink) continue
+
+        if (method === 'Mamo Pay') {
           if (!boat && boatId) {
             boat = (await payload.findByID({
               collection: 'boats',
@@ -2959,7 +2971,11 @@ const activateDueScheduledPayments = async (payload: any) => {
               installedAt: now.toISOString(),
               paymentLink: link?.url || payment.paymentLink || '',
               paymentLinkId: link?.id || payment.paymentLinkId || '',
-              notes: `${payment.notes || ''}${payment.notes ? '\n' : ''}Payment link created automatically on due date.`,
+              notes: `${payment.notes || ''}${payment.notes ? '\n' : ''}${
+                shouldCreateMissingPendingMamoLink
+                  ? 'Missing Mamo Pay link created for awaiting payment row.'
+                  : 'Payment link created automatically on due date.'
+              }`,
             }
 
             latestPaymentLink = link?.url || latestPaymentLink
