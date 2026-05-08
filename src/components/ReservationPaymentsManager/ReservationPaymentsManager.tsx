@@ -175,6 +175,54 @@ const getFeeFields = (amount: number, method?: PaymentMethod) => {
   }
 }
 
+const normalisePaymentRowsForSave = ({
+  payments,
+  totalPrice,
+  methodValue,
+  paymentPlanValue,
+}: {
+  payments: PaymentRow[]
+  totalPrice: number
+  methodValue?: PaymentMethod
+  paymentPlanValue?: string
+}): PaymentRow[] => {
+  const now = new Date().toISOString()
+  let runningPaidOrPending = 0
+
+  return payments.map((payment, index) => {
+    const amount = Math.max(0, Math.round(toNumber(payment.amount)))
+    const method = payment.method || methodValue || 'Mamo Pay'
+    const status = normaliseStatus(payment.status)
+
+    if (status === 'scheduled' || status === 'pending' || status === 'completed') {
+      runningPaidOrPending += amount
+    }
+
+    const feeFields = getFeeFields(amount, method)
+    const date = payment.date || now
+    const createdAt = payment.createdAt || now
+
+    return {
+      ...payment,
+      id: payment.id || `payment-${index}`,
+      kind: payment.kind || (paymentPlanValue === 'full' ? 'full' : 'balance'),
+      amount,
+      method,
+      status,
+      date,
+      createdAt,
+      paidAt: status === 'completed' ? payment.paidAt || now : payment.paidAt || '',
+      installmentStage:
+        status === 'completed'
+          ? 'paid'
+          : payment.installmentStage ||
+            (method === 'Mamo Pay' ? 'ready_to_be_installed' : 'ready_to_be_installed'),
+      balance: Math.max(0, totalPrice - runningPaidOrPending),
+      ...feeFields,
+    }
+  })
+}
+
 const getPaymentStatusLabel = (status?: PaymentStatus): string => {
   switch (status) {
     case 'scheduled':
@@ -559,6 +607,21 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
       return
     }
 
+    const paymentsToSave = normalisePaymentRowsForSave({
+      payments: nextPayments,
+      totalPrice,
+      methodValue,
+      paymentPlanValue,
+    })
+
+    setLocalPayments(paymentsToSave)
+    setPaymentsValue(paymentsToSave)
+
+    if (reservationIdForState) {
+      writeSavedPaymentsToSession(reservationIdForState, paymentsToSave)
+      dispatchPaymentsUpdatedEvent(reservationIdForState, paymentsToSave)
+    }
+
     setIsSavingPayments(true)
     setSaveMessage('')
     setSaveError('')
@@ -571,7 +634,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          payments: nextPayments,
+          payments: paymentsToSave,
         }),
       })
 
@@ -611,20 +674,20 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
           ? doc.payments
           : null
 
-      if (nextPayments.length > 0 && json?.paymentsCount === 0) {
+      if (paymentsToSave.length > 0 && json?.paymentsCount === 0) {
         throw new Error(
           'Payment schedule was submitted but the backend returned zero saved payment rows.',
         )
       }
 
-      if (nextPayments.length > 0 && Array.isArray(savedPayments) && savedPayments.length === 0) {
+      if (paymentsToSave.length > 0 && Array.isArray(savedPayments) && savedPayments.length === 0) {
         throw new Error(
           'Payment schedule was submitted but the backend returned an empty payment schedule.',
         )
       }
 
       let paymentsToRender =
-        Array.isArray(savedPayments) && savedPayments.length > 0 ? savedPayments : nextPayments
+        Array.isArray(savedPayments) && savedPayments.length > 0 ? savedPayments : paymentsToSave
 
       const reloadedPayments = await fetchReservationPayments(reservationId)
 
