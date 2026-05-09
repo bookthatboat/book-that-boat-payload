@@ -58,15 +58,18 @@ const mapReservationToCalendarBooking = (reservation: any): CalendarBooking => {
     supplierId: supplier?.id || 'unassigned',
     supplierName: getRelatedName(supplier, 'No supplier assigned'),
     supplierPhone: `${supplier?.countryCode || ''}${supplier?.contactNumber || ''}`.trim(),
+    status: reservation.status || 'pending',
     startTime: reservation.startTime,
     endTime: reservation.endTime,
     guests: reservation.guests || 0,
     totalPrice: typeof reservation.totalPrice === 'number' ? reservation.totalPrice : Number(reservation.totalPrice || 0),
     departureLocation: reservation.departureLocation || '',
     meetingPointName: reservation.meetingPointName || '',
+    meetingPointPin: reservation.meetingPointPin || '',
     contactPersonName: reservation.contactPersonName || '',
     contactPersonNumber: reservation.contactPersonNumber || '',
     parkingLocationName: reservation.parkingLocationName || '',
+    parkingLocationPin: reservation.parkingLocationPin || '',
     adminUrl: `/admin/collections/reservations/${reservation.id}`,
   }
 }
@@ -92,7 +95,7 @@ const BookingCalendarPage = async () => {
       and: [
         {
           status: {
-            in: ['confirmed', 'confirmed_balance_due'],
+            in: ['pending', 'awaiting payment', 'confirmed_balance_due', 'confirmed'],
           },
         },
         {
