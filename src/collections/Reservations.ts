@@ -1,4 +1,3 @@
-import { APIError } from 'payload/errors'
 import type { CollectionConfig } from 'payload'
 import type { ReservationStatus } from '@/types/reservations'
 import type { Boat } from '@/types/boats'
@@ -2630,10 +2629,78 @@ const startOfUtcDay = (value: Date) => {
   return copy
 }
 
-class AdminValidationError extends APIError {
-  constructor(message: string) {
-    super(message, 400, undefined, true)
+
+const getAwaitingPaymentValidationMessage = ({
+  data,
+  originalDoc,
+}: {
+  data?: any
+  originalDoc?: any
+}): string | null => {
+  const nextStatus = data?.status ?? originalDoc?.status
+
+  if (nextStatus !== 'awaiting payment') return null
+
+  const meetingPointName = String(data?.meetingPointName || originalDoc?.meetingPointName || '').trim()
+  const meetingPointPin = String(data?.meetingPointPin || originalDoc?.meetingPointPin || '').trim()
+  const contactPersonName = String(data?.contactPersonName || originalDoc?.contactPersonName || '').trim()
+  const contactPersonNumber = String(data?.contactPersonNumber || originalDoc?.contactPersonNumber || '').trim()
+  const parkingLocationName = String(data?.parkingLocationName || originalDoc?.parkingLocationName || '').trim()
+  const parkingLocationPin = String(data?.parkingLocationPin || originalDoc?.parkingLocationPin || '').trim()
+
+  const payments = Array.isArray(data?.payments)
+    ? data.payments
+    : Array.isArray(originalDoc?.payments)
+      ? originalDoc.payments
+      : []
+
+  const totalPrice = Number(data?.totalPrice ?? originalDoc?.totalPrice ?? 0)
+
+  const activePayments = payments.filter((payment: any) =>
+    ['scheduled', 'pending', 'completed'].includes(payment?.status),
+  )
+
+  const activePaymentTotal = activePayments.reduce((sum: number, payment: any) => {
+    return sum + Number(payment?.amount || 0)
+  }, 0)
+
+  const missing: string[] = []
+
+  if (!meetingPointName) missing.push('Meeting Point - Name')
+  if (!meetingPointPin) missing.push('Meeting Point - Google Maps Pin')
+  if (!contactPersonName) missing.push('Contact Person - Name')
+  if (!contactPersonNumber) missing.push('Contact Person - Number')
+  if (!parkingLocationName) missing.push('Car Parking Location - Name')
+  if (!parkingLocationPin) missing.push('Car Parking Location - Google Maps Pin')
+
+  if (activePayments.length === 0) {
+    missing.push(
+      'Payment Schedule Manager - add at least one scheduled, awaiting, or received payment row',
+    )
   }
+
+  if (
+    totalPrice > 0 &&
+    activePayments.length > 0 &&
+    Math.round(activePaymentTotal) < Math.round(totalPrice)
+  ) {
+    missing.push(
+      `Payment Schedule Manager - active payment rows must cover the reservation total of AED ${Math.round(
+        totalPrice,
+      ).toLocaleString()}. Current active payment total is AED ${Math.round(
+        activePaymentTotal,
+      ).toLocaleString()}`,
+    )
+  }
+
+  if (!missing.length) return null
+
+  return [
+    'Cannot move this reservation to Awaiting Payment yet.',
+    '',
+    'Please complete:',
+    ...missing.map((item) => `- ${item}`),
+  ].join('\n')
 }
 
 const validateReservationPaymentSchedule = ({
@@ -3984,16 +4051,9 @@ export const Reservations: CollectionConfig = {
           )
         }
 
-        if (missing.length) {
-          throw new AdminValidationError(
-            [
-              'Cannot move this reservation to Awaiting Payment yet.',
-              '',
-              'Please complete:',
-              ...missing.map((item) => `- ${item}`),
-            ].join('\n'),
-          )
-        }
+        // Admin-facing validation is handled by the Status field validate function.
+        // Keep this hook non-throwing so Payload Admin does not mask the message as
+        // a generic "Something went wrong" error.
 
         return data
       },
@@ -4525,9 +4585,10 @@ export const Reservations: CollectionConfig = {
       defaultValue: 'full',
       required: true,
       admin: {
+        hidden: true,
         position: 'sidebar',
         description:
-          'Choose Pay in Full for a single payment row, or Scheduled Payments / Instalments to build a payment schedule in the Payment Manager.',
+          'Legacy field kept for backwards compatibility. Payment Schedule Manager now defines whether a booking is full payment or scheduled payments.',
       },
     },
     {
@@ -4627,6 +4688,22 @@ export const Reservations: CollectionConfig = {
       type: 'select',
       options: RESERVATION_STATUS_OPTIONS,
       defaultValue: 'pending',
+      validate: (value: unknown, validationOptions: any) => {
+        const data = validationOptions?.data || {}
+        const siblingData = validationOptions?.siblingData || {}
+        const originalDoc = validationOptions?.originalDoc || {}
+
+        const message = getAwaitingPaymentValidationMessage({
+          data: {
+            ...data,
+            ...siblingData,
+            status: value,
+          },
+          originalDoc,
+        })
+
+        return message || true
+      },
     },
     {
       name: 'paymentLinkId',

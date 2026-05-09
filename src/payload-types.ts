@@ -188,7 +188,7 @@ export interface Reservation {
    */
   parkingLocationPin?: string | null;
   /**
-   * Choose Pay in Full for a single payment row, or Scheduled Payments / Instalments to build a payment schedule in the Payment Manager.
+   * Legacy field kept for backwards compatibility. Payment Schedule Manager now defines whether a booking is full payment or scheduled payments.
    */
   paymentMethod: 'full' | 'scheduled' | 'deposit_balance' | 'installments';
   /**
