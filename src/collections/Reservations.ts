@@ -1,4 +1,5 @@
 import type { CollectionConfig } from 'payload'
+import { randomBytes, createHash, timingSafeEqual } from 'crypto'
 import type { ReservationStatus } from '@/types/reservations'
 import type { Boat } from '@/types/boats'
 import type { User } from '@/types/users'
@@ -3975,6 +3976,258 @@ const getSavePaymentsErrorDetails = (error: unknown) => {
   }
 }
 
+
+const CUSTOMER_MANAGEMENT_CODE_TTL_MINUTES = 15
+const CUSTOMER_MANAGEMENT_TOKEN_TTL_HOURS = 2
+
+const getCustomerManagementSecret = () => {
+  return (
+    process.env.CUSTOMER_MANAGEMENT_SECRET ||
+    process.env.PAYLOAD_SECRET ||
+    process.env.NEXTAUTH_SECRET ||
+    'book-that-boat-customer-management'
+  )
+}
+
+const hashCustomerManagementValue = (value: string) => {
+  return createHash('sha256')
+    .update(`${value}:${getCustomerManagementSecret()}`)
+    .digest('hex')
+}
+
+const safeTokenEquals = (a: string, b: string) => {
+  if (!a || !b) return false
+
+  const aBuffer = Buffer.from(a)
+  const bBuffer = Buffer.from(b)
+
+  if (aBuffer.length !== bBuffer.length) return false
+
+  return timingSafeEqual(aBuffer, bBuffer)
+}
+
+const generateCustomerVerificationCode = () => {
+  return String(Math.floor(100000 + Math.random() * 900000))
+}
+
+const generateCustomerManagementToken = () => {
+  return randomBytes(32).toString('hex')
+}
+
+const getManagementExpiryDate = (minutesFromNow: number) => {
+  return new Date(Date.now() + minutesFromNow * 60 * 1000).toISOString()
+}
+
+const getAdminRefundNotificationEmail = () => {
+  return (
+    process.env.BOOKING_ADMIN_EMAIL ||
+    process.env.RESERVATION_ADMIN_EMAIL ||
+    process.env.ADMIN_EMAIL ||
+    (EMAIL_CONFIG as any)?.adminEmail ||
+    (EMAIL_CONFIG as any)?.to ||
+    (EMAIL_CONFIG as any)?.from ||
+    'web@bookthatboat.com'
+  )
+}
+
+const normalizeManageBookingEmail = (value: unknown) => {
+  return String(value || '').trim().toLowerCase()
+}
+
+const getRequestJsonBody = async (req: any) => {
+  if (typeof req.json === 'function') {
+    return await req.json().catch(() => null)
+  }
+
+  return req.body || null
+}
+
+const findReservationForCustomerManagement = async ({
+  payload,
+  bookingReference,
+  guestEmail,
+}: {
+  payload: any
+  bookingReference: string
+  guestEmail: string
+}) => {
+  const cleanBookingReference = String(bookingReference || '').trim()
+  const cleanGuestEmail = normalizeManageBookingEmail(guestEmail)
+
+  if (!cleanBookingReference || !cleanGuestEmail) return null
+
+  const result = await payload.find({
+    collection: 'reservations',
+    where: {
+      transactionId: {
+        equals: cleanBookingReference,
+      },
+    },
+    limit: 5,
+    depth: 1,
+    overrideAccess: true,
+  })
+
+  const docs = Array.isArray(result?.docs) ? result.docs : []
+
+  return (
+    docs.find((reservation: any) => {
+      return normalizeManageBookingEmail(reservation?.guestEmail) === cleanGuestEmail
+    }) || null
+  )
+}
+
+const findReservationByManagementToken = async ({
+  payload,
+  token,
+}: {
+  payload: any
+  token: string
+}) => {
+  const cleanToken = String(token || '').trim()
+  if (!cleanToken) return null
+
+  const tokenHash = hashCustomerManagementValue(cleanToken)
+
+  const result = await payload.find({
+    collection: 'reservations',
+    where: {
+      'customerManagementAuth.managementTokenHash': {
+        equals: tokenHash,
+      },
+    },
+    limit: 1,
+    depth: 2,
+    overrideAccess: true,
+  })
+
+  const reservation = Array.isArray(result?.docs) ? result.docs[0] : null
+  if (!reservation) return null
+
+  const storedTokenHash = String(reservation?.customerManagementAuth?.managementTokenHash || '')
+  const expiresAtRaw = reservation?.customerManagementAuth?.managementTokenExpiresAt
+  const expiresAt = expiresAtRaw ? new Date(expiresAtRaw) : null
+
+  if (!storedTokenHash || !safeTokenEquals(storedTokenHash, tokenHash)) return null
+  if (!expiresAt || Number.isNaN(expiresAt.getTime()) || expiresAt <= new Date()) return null
+
+  return reservation
+}
+
+const getCustomerReservationSummary = (reservation: any) => {
+  const policy = getReservationPolicyResult(reservation)
+
+  return {
+    id: reservation?.id,
+    bookingReference: reservation?.transactionId,
+    status: reservation?.status,
+    boat: reservation?.boat,
+    guestName: reservation?.user,
+    guestEmail: reservation?.guestEmail,
+    guestPhone: reservation?.guestPhone,
+    startTime: reservation?.startTime,
+    endTime: reservation?.endTime,
+    totalPrice: reservation?.totalPrice,
+    extras: reservation?.extras || [],
+    policy,
+    customerCancellation: reservation?.customerCancellation || null,
+  }
+}
+
+const sendCustomerManagementCodeEmail = async ({
+  reservation,
+  code,
+}: {
+  reservation: any
+  code: string
+}) => {
+  const to = String(reservation?.guestEmail || '').trim()
+  if (!to) return
+
+  const subject = `Your Book That Boat verification code`
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;line-height:1.6;color:#111827;">
+      <h2 style="margin:0 0 12px;">Manage your booking</h2>
+      <p>Hello ${reservation?.user || 'there'},</p>
+      <p>Your verification code is:</p>
+      <p style="font-size:28px;font-weight:800;letter-spacing:4px;margin:16px 0;">${code}</p>
+      <p>This code expires in ${CUSTOMER_MANAGEMENT_CODE_TTL_MINUTES} minutes.</p>
+      <p>If you did not request this, you can ignore this email.</p>
+      <p style="margin-top:24px;">Book That Boat</p>
+    </div>
+  `
+
+  await sendEmail(to, subject, html)
+}
+
+const sendAdminRefundPendingEmail = async ({
+  reservation,
+  refundAmount,
+  refundPercentage,
+  cancellationWindow,
+  reason,
+}: {
+  reservation: any
+  refundAmount: number
+  refundPercentage: number
+  cancellationWindow: string
+  reason?: string
+}) => {
+  const adminEmail = getAdminRefundNotificationEmail()
+  if (!adminEmail) return
+
+  const subject = `Refund approval required - Booking ${reservation?.transactionId || reservation?.id}`
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;line-height:1.6;color:#111827;">
+      <h2 style="margin:0 0 12px;color:#b45309;">Customer cancellation - refund approval required</h2>
+
+      <p>A customer has cancelled their booking and a refund is pending admin approval.</p>
+
+      <table style="border-collapse:collapse;width:100%;max-width:720px;">
+        <tr>
+          <td style="padding:8px;border:1px solid #e5e7eb;font-weight:700;">Booking ID</td>
+          <td style="padding:8px;border:1px solid #e5e7eb;">${reservation?.transactionId || reservation?.id}</td>
+        </tr>
+        <tr>
+          <td style="padding:8px;border:1px solid #e5e7eb;font-weight:700;">Customer</td>
+          <td style="padding:8px;border:1px solid #e5e7eb;">${reservation?.user || ''}</td>
+        </tr>
+        <tr>
+          <td style="padding:8px;border:1px solid #e5e7eb;font-weight:700;">Email</td>
+          <td style="padding:8px;border:1px solid #e5e7eb;">${reservation?.guestEmail || ''}</td>
+        </tr>
+        <tr>
+          <td style="padding:8px;border:1px solid #e5e7eb;font-weight:700;">Trip Start</td>
+          <td style="padding:8px;border:1px solid #e5e7eb;">${reservation?.startTime ? formatDubaiDateTime(reservation.startTime) : 'Unknown'}</td>
+        </tr>
+        <tr>
+          <td style="padding:8px;border:1px solid #e5e7eb;font-weight:700;">Refund Window</td>
+          <td style="padding:8px;border:1px solid #e5e7eb;">${cancellationWindow}</td>
+        </tr>
+        <tr>
+          <td style="padding:8px;border:1px solid #e5e7eb;font-weight:700;">Refund Percentage</td>
+          <td style="padding:8px;border:1px solid #e5e7eb;">${refundPercentage}%</td>
+        </tr>
+        <tr>
+          <td style="padding:8px;border:1px solid #e5e7eb;font-weight:700;">Refund Amount</td>
+          <td style="padding:8px;border:1px solid #e5e7eb;">AED ${Math.round(Number(refundAmount || 0)).toLocaleString()}</td>
+        </tr>
+        <tr>
+          <td style="padding:8px;border:1px solid #e5e7eb;font-weight:700;">Reason</td>
+          <td style="padding:8px;border:1px solid #e5e7eb;">${reason || 'No reason provided'}</td>
+        </tr>
+      </table>
+
+      <p style="margin-top:18px;">Please open the reservation in Payload admin and approve or reject the refund.</p>
+    </div>
+  `
+
+  await sendEmail(adminEmail, subject, html)
+}
+
+
 export const Reservations: CollectionConfig = {
   slug: 'reservations',
   endpoints: [
@@ -4106,7 +4359,521 @@ export const Reservations: CollectionConfig = {
         }
       },
     },
+    {
+    path: '/customer-management/request-code',
+    method: 'post',
+    handler: async (req) => {
+    try {
+    const body = await getRequestJsonBody(req)
+
+    const bookingReference = String(body?.bookingReference || body?.transactionId || '').trim()
+    const guestEmail = String(body?.guestEmail || body?.email || '').trim()
+
+    const reservation = await findReservationForCustomerManagement({
+    payload: req.payload,
+    bookingReference,
+    guestEmail,
+    })
+
+    // Do not reveal which part was wrong.
+    if (!reservation) {
+    return Response.json({
+    success: true,
+    message:
+    'If the booking details match our records, a verification code will be sent.',
+    })
+    }
+
+    const code = generateCustomerVerificationCode()
+    const verificationCodeHash = hashCustomerManagementValue(code)
+
+    await req.payload.update({
+    collection: 'reservations',
+    id: reservation.id,
+    data: {
+    customerManagementAuth: {
+    ...(reservation.customerManagementAuth || {}),
+    verificationCodeHash,
+    verificationCodeExpiresAt: getManagementExpiryDate(CUSTOMER_MANAGEMENT_CODE_TTL_MINUTES),
+    },
+    } as any,
+    overrideAccess: true,
+    })
+
+    await sendCustomerManagementCodeEmail({
+    reservation,
+    code,
+    })
+
+    return Response.json({
+    success: true,
+    message:
+    'If the booking details match our records, a verification code will be sent.',
+    })
+    } catch (error) {
+    console.error('[customer-management/request-code] failed', error)
+
+    return Response.json(
+    {
+    success: false,
+    message: 'Could not request booking verification code.',
+    },
+    {
+    status: 500,
+    },
+    )
+    }
+    },
+    },
+    {
+    path: '/customer-management/verify-code',
+    method: 'post',
+    handler: async (req) => {
+    try {
+    const body = await getRequestJsonBody(req)
+
+    const bookingReference = String(body?.bookingReference || body?.transactionId || '').trim()
+    const guestEmail = String(body?.guestEmail || body?.email || '').trim()
+    const code = String(body?.code || '').trim()
+
+    if (!bookingReference || !guestEmail || !code) {
+    return Response.json(
+    {
+    success: false,
+    message: 'Booking ID, email and verification code are required.',
+    },
+    {
+    status: 400,
+    },
+    )
+    }
+
+    const reservation = await findReservationForCustomerManagement({
+    payload: req.payload,
+    bookingReference,
+    guestEmail,
+    })
+
+    if (!reservation) {
+    return Response.json(
+    {
+    success: false,
+    message: 'Invalid or expired verification code.',
+    },
+    {
+    status: 401,
+    },
+    )
+    }
+
+    const auth = reservation.customerManagementAuth || {}
+    const expiresAt = auth.verificationCodeExpiresAt
+    ? new Date(auth.verificationCodeExpiresAt)
+    : null
+
+    const submittedHash = hashCustomerManagementValue(code)
+    const storedHash = String(auth.verificationCodeHash || '')
+
+    const isValid =
+    storedHash &&
+    safeTokenEquals(storedHash, submittedHash) &&
+    expiresAt &&
+    !Number.isNaN(expiresAt.getTime()) &&
+    expiresAt > new Date()
+
+    if (!isValid) {
+    return Response.json(
+    {
+    success: false,
+    message: 'Invalid or expired verification code.',
+    },
+    {
+    status: 401,
+    },
+    )
+    }
+
+    const managementToken = generateCustomerManagementToken()
+    const managementTokenHash = hashCustomerManagementValue(managementToken)
+
+    const updatedReservation = await req.payload.update({
+    collection: 'reservations',
+    id: reservation.id,
+    data: {
+    customerManagementAuth: {
+    ...auth,
+    verificationCodeHash: null,
+    verificationCodeExpiresAt: null,
+    managementTokenHash,
+    managementTokenExpiresAt: getManagementExpiryDate(
+    CUSTOMER_MANAGEMENT_TOKEN_TTL_HOURS * 60,
+    ),
+    lastVerifiedAt: new Date().toISOString(),
+    },
+    } as any,
+    overrideAccess: true,
+    })
+
+    return Response.json({
+    success: true,
+    managementToken,
+    booking: getCustomerReservationSummary(updatedReservation),
+    })
+    } catch (error) {
+    console.error('[customer-management/verify-code] failed', error)
+
+    return Response.json(
+    {
+    success: false,
+    message: 'Could not verify booking code.',
+    },
+    {
+    status: 500,
+    },
+    )
+    }
+    },
+    },
+    {
+    path: '/customer-management/booking',
+    method: 'get',
+    handler: async (req) => {
+    try {
+    const requestUrl = req.url
+      ? new URL(req.url)
+      : new URL('http://localhost/api/reservations/customer-management/booking')
+
+    const authorizationHeader =
+      typeof req.headers?.get === 'function' ? req.headers.get('authorization') || '' : ''
+
+    const token =
+      requestUrl.searchParams.get('token') ||
+      String(authorizationHeader).replace(/^Bearer\s+/i, '')
+
+    const reservation = await findReservationByManagementToken({
+    payload: req.payload,
+    token,
+    })
+
+    if (!reservation) {
+    return Response.json(
+    {
+    success: false,
+    message: 'Invalid or expired booking management token.',
+    },
+    {
+    status: 401,
+    },
+    )
+    }
+
+    return Response.json({
+    success: true,
+    booking: getCustomerReservationSummary(reservation),
+    })
+    } catch (error) {
+    console.error('[customer-management/booking] failed', error)
+
+    return Response.json(
+    {
+    success: false,
+    message: 'Could not load booking.',
+    },
+    {
+    status: 500,
+    },
+    )
+    }
+    },
+    },
+    {
+    path: '/customer-management/cancel',
+    method: 'post',
+    handler: async (req) => {
+    try {
+    const body = await getRequestJsonBody(req)
+    const token = String(body?.token || '').trim()
+    const reason = String(body?.reason || '').trim()
+
+    const reservation = await findReservationByManagementToken({
+    payload: req.payload,
+    token,
+    })
+
+    if (!reservation) {
+    return Response.json(
+    {
+    success: false,
+    message: 'Invalid or expired booking management token.',
+    },
+    {
+    status: 401,
+    },
+    )
+    }
+
+    if (reservation.status === 'cancelled') {
+    return Response.json(
+    {
+    success: false,
+    message: 'This booking has already been cancelled.',
+    },
+    {
+    status: 400,
+    },
+    )
+    }
+
+    const policy = getReservationPolicyResult(reservation)
+
+    const refundStatus =
+    policy.estimatedRefundAmount > 0 ? 'refund_due' : 'not_required'
+
+    const updatedReservation = await req.payload.update({
+    collection: 'reservations',
+    id: reservation.id,
+    data: {
+    status: 'cancelled',
+    customerCancellation: {
+    ...(reservation.customerCancellation || {}),
+    requestedAt: new Date().toISOString(),
+    cancelledAt: new Date().toISOString(),
+    cancelledBy: 'customer',
+    reason,
+    refundPercentage: policy.refundPercentage,
+    refundAmount: policy.estimatedRefundAmount,
+    cancellationWindow: policy.cancellationWindow,
+    refundStatus,
+    },
+    } as any,
+    overrideAccess: true,
+    })
+
+    if (policy.estimatedRefundAmount > 0) {
+    await sendAdminRefundPendingEmail({
+    reservation,
+    refundAmount: policy.estimatedRefundAmount,
+    refundPercentage: policy.refundPercentage,
+    cancellationWindow: policy.cancellationWindow,
+    reason,
+    })
+    }
+
+    return Response.json({
+    success: true,
+    message:
+    policy.estimatedRefundAmount > 0
+    ? 'Your booking has been cancelled. Your refund request is pending admin approval.'
+    : 'Your booking has been cancelled. This booking is not eligible for a refund under the cancellation policy.',
+    booking: getCustomerReservationSummary(updatedReservation),
+    })
+    } catch (error) {
+    console.error('[customer-management/cancel] failed', error)
+
+    return Response.json(
+    {
+    success: false,
+    message: 'Could not cancel booking.',
+    },
+    {
+    status: 500,
+    },
+    )
+    }
+    },
+    },
+    {
+    path: '/:id/approve-customer-refund',
+    method: 'patch',
+    handler: async (req) => {
+    const routeParams = (req as any).routeParams || {}
+    const id = Array.isArray(routeParams.id) ? routeParams.id[0] : routeParams.id
+
+    try {
+    if (!req.user) {
+    return Response.json(
+    {
+    success: false,
+    message: 'Admin authentication required.',
+    },
+    {
+    status: 401,
+    },
+    )
+    }
+
+    if (!id) {
+    return Response.json(
+    {
+    success: false,
+    message: 'Missing reservation ID.',
+    },
+    {
+    status: 400,
+    },
+    )
+    }
+
+    const body = await getRequestJsonBody(req)
+    const approvalNotes = String(body?.approvalNotes || body?.notes || '').trim()
+
+    const reservation = await req.payload.findByID({
+    collection: 'reservations',
+    id,
+    depth: 1,
+    overrideAccess: true,
+    })
+
+    const cancellation = reservation?.customerCancellation || {}
+    const refundAmount = Number(cancellation?.refundAmount || 0)
+
+    if (refundAmount <= 0) {
+    return Response.json(
+    {
+    success: false,
+    message: 'This reservation has no refund amount to approve.',
+    },
+    {
+    status: 400,
+    },
+    )
+    }
+
+    if (cancellation?.refundStatus === 'approved' || cancellation?.refundStatus === 'refunded') {
+    return Response.json(
+    {
+    success: false,
+    message: 'This refund has already been approved or refunded.',
+    },
+    {
+    status: 400,
+    },
+    )
+    }
+
+    const updatedReservation = await req.payload.update({
+    collection: 'reservations',
+    id,
+    data: {
+    customerCancellation: {
+    ...cancellation,
+    refundStatus: 'approved',
+    approvedAt: new Date().toISOString(),
+    approvedBy: req.user.id,
+    approvalNotes,
+    },
+    } as any,
+    overrideAccess: true,
+    })
+
+    return Response.json({
+    success: true,
+    message: 'Refund approved. Please process the actual refund payment and mark it as refunded once complete.',
+    booking: getCustomerReservationSummary(updatedReservation),
+    })
+    } catch (error) {
+    console.error('[approve-customer-refund] failed', error)
+
+    return Response.json(
+    {
+    success: false,
+    message: 'Could not approve refund.',
+    },
+    {
+    status: 500,
+    },
+    )
+    }
+    },
+    },
+    {
+    path: '/:id/mark-customer-refunded',
+    method: 'patch',
+    handler: async (req) => {
+    const routeParams = (req as any).routeParams || {}
+    const id = Array.isArray(routeParams.id) ? routeParams.id[0] : routeParams.id
+
+    try {
+    if (!req.user) {
+    return Response.json(
+    {
+    success: false,
+    message: 'Admin authentication required.',
+    },
+    {
+    status: 401,
+    },
+    )
+    }
+
+    if (!id) {
+    return Response.json(
+    {
+    success: false,
+    message: 'Missing reservation ID.',
+    },
+    {
+    status: 400,
+    },
+    )
+    }
+
+    const reservation = await req.payload.findByID({
+    collection: 'reservations',
+    id,
+    depth: 1,
+    overrideAccess: true,
+    })
+
+    const cancellation = reservation?.customerCancellation || {}
+
+    if (cancellation?.refundStatus !== 'approved') {
+    return Response.json(
+    {
+    success: false,
+    message: 'Refund must be approved before it can be marked as refunded.',
+    },
+    {
+    status: 400,
+    },
+    )
+    }
+
+    const updatedReservation = await req.payload.update({
+    collection: 'reservations',
+    id,
+    data: {
+    customerCancellation: {
+    ...cancellation,
+    refundStatus: 'refunded',
+    refundedAt: new Date().toISOString(),
+    },
+    } as any,
+    overrideAccess: true,
+    })
+
+    return Response.json({
+    success: true,
+    message: 'Refund marked as paid/refunded.',
+    booking: getCustomerReservationSummary(updatedReservation),
+    })
+    } catch (error) {
+    console.error('[mark-customer-refunded] failed', error)
+
+    return Response.json(
+    {
+    success: false,
+    message: 'Could not mark refund as refunded.',
+    },
+    {
+    status: 500,
+    },
+    )
+    }
+    },
+    },
   ],
+
   admin: {
     defaultColumns: ['transactionId', 'boat', 'supplier', 'user', 'status', 'startTime', 'endTime'],
   },
@@ -5051,12 +5818,48 @@ export const Reservations: CollectionConfig = {
           defaultValue: 'not_required',
           options: [
             { label: 'Not Required', value: 'not_required' },
-            { label: 'Refund Due', value: 'refund_due' },
+            { label: 'Refund Due / Pending Approval', value: 'refund_due' },
+            { label: 'Approved', value: 'approved' },
             { label: 'Refunded', value: 'refunded' },
             { label: 'Rejected', value: 'rejected' },
           ],
           admin: {
             readOnly: true,
+          },
+        },
+        {
+          name: 'approvedAt',
+          type: 'date',
+          label: 'Refund Approved At',
+          admin: {
+            readOnly: true,
+            date: { pickerAppearance: 'dayAndTime' },
+          },
+        },
+        {
+          name: 'approvedBy',
+          type: 'relationship',
+          relationTo: 'users',
+          label: 'Refund Approved By',
+          admin: {
+            readOnly: true,
+          },
+        },
+        {
+          name: 'approvalNotes',
+          type: 'textarea',
+          label: 'Refund Approval Notes',
+          admin: {
+            readOnly: true,
+          },
+        },
+        {
+          name: 'refundedAt',
+          type: 'date',
+          label: 'Refund Paid At',
+          admin: {
+            readOnly: true,
+            date: { pickerAppearance: 'dayAndTime' },
           },
         },
       ],
