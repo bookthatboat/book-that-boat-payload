@@ -2878,11 +2878,13 @@ const activatePaymentScheduleForReservation = async ({
         id: reservation.id,
         data: {
           payments,
+          paymentsUpdateSource: 'payment-manager',
           paymentLink: firstPaymentLink || latestPaymentLink || '',
           paymentLinkId: firstPaymentLinkId || latestPaymentLinkId || '',
-        },
+        } as any,
         overrideAccess: true,
         context: {
+          paymentsUpdateSource: 'payment-manager',
           skipPaymentReconciliation: true,
           skipBalancePaymentLink: true,
         },
