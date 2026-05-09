@@ -4116,6 +4116,30 @@ const findReservationByManagementToken = async ({
 
 const getCustomerReservationSummary = (reservation: any) => {
   const policy = getReservationPolicyResult(reservation)
+  const payments = Array.isArray(reservation?.payments) ? reservation.payments : []
+  const totalPrice = Number(reservation?.totalPrice || 0)
+
+  const paidAmount = payments.reduce((sum: number, payment: any) => {
+    if (payment?.status !== 'completed') return sum
+    return sum + Number(payment?.amount || 0)
+  }, 0)
+
+  const pendingAmount = payments.reduce((sum: number, payment: any) => {
+    if (payment?.status !== 'scheduled' && payment?.status !== 'pending') return sum
+    return sum + Number(payment?.amount || 0)
+  }, 0)
+
+  const balanceDue = Math.max(0, Math.round(totalPrice - paidAmount))
+
+  const boat = reservation?.boat
+  const boatLocation =
+    typeof boat === 'object'
+      ? boat?.location?.harbour ||
+        boat?.location?.name ||
+        boat?.location?.title ||
+        boat?.location ||
+        null
+      : null
 
   return {
     id: reservation?.id,
@@ -4125,12 +4149,58 @@ const getCustomerReservationSummary = (reservation: any) => {
     guestName: reservation?.user,
     guestEmail: reservation?.guestEmail,
     guestPhone: reservation?.guestPhone,
+    countryCode: reservation?.countryCode,
+    guests: reservation?.guests,
     startTime: reservation?.startTime,
     endTime: reservation?.endTime,
-    totalPrice: reservation?.totalPrice,
+    totalPrice,
     extras: reservation?.extras || [],
+    otherExtras: reservation?.otherExtras || [],
+    specialRequests: reservation?.specialRequests || null,
     policy,
     customerCancellation: reservation?.customerCancellation || null,
+    tripDetails: {
+      location: boatLocation,
+      meetingPointName: reservation?.meetingPointName || null,
+      meetingPointPin: reservation?.meetingPointPin || null,
+      parkingLocation: reservation?.parkingLocation || reservation?.carParkingLocation || null,
+      parkingPin: reservation?.parkingPin || reservation?.carParkingPin || null,
+      contactName:
+        reservation?.bookingContactName ||
+        reservation?.captainName ||
+        reservation?.contactName ||
+        null,
+      contactPhone:
+        reservation?.bookingContactPhone ||
+        reservation?.captainPhone ||
+        reservation?.contactPhone ||
+        null,
+    },
+    paymentSummary: {
+      totalPrice,
+      paidAmount: Math.round(paidAmount),
+      pendingAmount: Math.round(pendingAmount),
+      balanceDue,
+      paymentStatus:
+        balanceDue <= 0
+          ? 'paid'
+          : paidAmount > 0
+            ? 'partially_paid'
+            : pendingAmount > 0
+              ? 'awaiting_payment'
+              : 'unpaid',
+      payments: payments.map((payment: any) => ({
+        id: payment?.id,
+        kind: payment?.kind,
+        method: payment?.method,
+        amount: Number(payment?.amount || 0),
+        customerPayableAmount: Number(payment?.customerPayableAmount || payment?.amount || 0),
+        status: payment?.status,
+        dueDate: payment?.date,
+        paidAt: payment?.paidAt,
+        paymentLink: payment?.paymentLink || null,
+      })),
+    },
   }
 }
 
