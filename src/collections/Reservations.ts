@@ -1,3 +1,4 @@
+import { APIError } from 'payload/errors'
 import type { CollectionConfig } from 'payload'
 import type { ReservationStatus } from '@/types/reservations'
 import type { Boat } from '@/types/boats'
@@ -2629,6 +2630,12 @@ const startOfUtcDay = (value: Date) => {
   return copy
 }
 
+class AdminValidationError extends APIError {
+  constructor(message: string) {
+    super(message, 400, undefined, true)
+  }
+}
+
 const validateReservationPaymentSchedule = ({
   data,
   originalDoc,
@@ -3978,7 +3985,7 @@ export const Reservations: CollectionConfig = {
         }
 
         if (missing.length) {
-          throw new Error(
+          throw new AdminValidationError(
             [
               'Cannot move this reservation to Awaiting Payment yet.',
               '',
