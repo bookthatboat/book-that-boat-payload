@@ -4216,15 +4216,111 @@ const sendCustomerManagementCodeEmail = async ({
 
   const subject = `Your Book That Boat verification code`
 
+  const bookingId = reservation?.transactionId || reservation?.id || ''
+  const guestName = reservation?.user || 'there'
+  const boatName =
+    typeof reservation?.boat === 'object'
+      ? reservation?.boat?.name || reservation?.boat?.title || 'your yacht'
+      : 'your yacht'
+
+  const tripDate = reservation?.startTime
+    ? formatDubaiDateTime(reservation.startTime)
+    : 'Your booking date'
+
   const html = `
-    <div style="font-family:Arial,sans-serif;line-height:1.6;color:#111827;">
-      <h2 style="margin:0 0 12px;">Manage your booking</h2>
-      <p>Hello ${reservation?.user || 'there'},</p>
-      <p>Your verification code is:</p>
-      <p style="font-size:28px;font-weight:800;letter-spacing:4px;margin:16px 0;">${code}</p>
-      <p>This code expires in ${CUSTOMER_MANAGEMENT_CODE_TTL_MINUTES} minutes.</p>
-      <p>If you did not request this, you can ignore this email.</p>
-      <p style="margin-top:24px;">Book That Boat</p>
+    <div style="margin:0;padding:0;background:#f3f7fb;font-family:Arial,Helvetica,sans-serif;color:#111827;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:#f3f7fb;padding:24px 0;">
+        <tr>
+          <td align="center" style="padding:24px 12px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;max-width:680px;background:#ffffff;border-radius:22px;overflow:hidden;box-shadow:0 18px 45px rgba(15,23,42,0.12);">
+              <tr>
+                <td style="background:linear-gradient(135deg,#07111f 0%,#0b2f57 55%,#0ea5e9 100%);padding:34px 30px;color:#ffffff;">
+                  <p style="margin:0 0 10px;font-size:12px;letter-spacing:3px;text-transform:uppercase;color:#bae6fd;font-weight:800;">
+                    Book That Boat
+                  </p>
+                  <h1 style="margin:0;font-size:30px;line-height:1.15;font-weight:900;color:#ffffff;">
+                    Manage your booking
+                  </h1>
+                  <p style="margin:14px 0 0;font-size:15px;line-height:1.7;color:#dbeafe;">
+                    Use this verification code to securely access your booking details.
+                  </p>
+                </td>
+              </tr>
+
+              <tr>
+                <td style="padding:30px;">
+                  <p style="margin:0 0 14px;font-size:16px;line-height:1.7;color:#111827;">
+                    Hello ${guestName},
+                  </p>
+
+                  <p style="margin:0 0 18px;font-size:15px;line-height:1.7;color:#374151;">
+                    Your verification code is:
+                  </p>
+
+                  <div style="margin:22px 0;padding:24px;border-radius:18px;background:#eff6ff;border:1px solid #bfdbfe;text-align:center;">
+                    <p style="margin:0;font-size:38px;line-height:1;font-weight:900;letter-spacing:8px;color:#0b5ed7;">
+                      ${code}
+                    </p>
+                    <p style="margin:12px 0 0;font-size:13px;line-height:1.5;color:#1e40af;font-weight:700;">
+                      This code expires in ${CUSTOMER_MANAGEMENT_CODE_TTL_MINUTES} minutes.
+                    </p>
+                  </div>
+
+                  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:22px 0;border:1px solid #e5e7eb;border-radius:16px;overflow:hidden;">
+                    <tr>
+                      <td style="padding:13px 14px;background:#f8fafc;border-bottom:1px solid #e5e7eb;color:#64748b;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;">
+                        Booking ID
+                      </td>
+                      <td style="padding:13px 14px;background:#ffffff;border-bottom:1px solid #e5e7eb;color:#111827;font-size:14px;font-weight:800;text-align:right;">
+                        ${bookingId}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding:13px 14px;background:#f8fafc;border-bottom:1px solid #e5e7eb;color:#64748b;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;">
+                        Yacht
+                      </td>
+                      <td style="padding:13px 14px;background:#ffffff;border-bottom:1px solid #e5e7eb;color:#111827;font-size:14px;font-weight:800;text-align:right;">
+                        ${boatName}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding:13px 14px;background:#f8fafc;color:#64748b;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;">
+                        Trip
+                      </td>
+                      <td style="padding:13px 14px;background:#ffffff;color:#111827;font-size:14px;font-weight:800;text-align:right;">
+                        ${tripDate}
+                      </td>
+                    </tr>
+                  </table>
+
+                  <div style="margin:22px 0 0;padding:16px 18px;border-radius:16px;background:#fff7ed;border:1px solid #fed7aa;">
+                    <p style="margin:0;font-size:14px;line-height:1.7;color:#9a3412;font-weight:700;">
+                      If you did not request this code, you can safely ignore this email. Your booking cannot be accessed without this verification code.
+                    </p>
+                  </div>
+
+                  <p style="margin:26px 0 0;font-size:15px;line-height:1.7;color:#374151;">
+                    Warm regards,<br />
+                    <strong style="color:#111827;">The Team @ Book That Boat</strong>
+                  </p>
+                </td>
+              </tr>
+
+              <tr>
+                <td style="padding:18px 30px;background:#0f172a;color:#cbd5e1;text-align:center;">
+                  <p style="margin:0;font-size:12px;line-height:1.6;">
+                    Book That Boat · Dubai, UAE
+                  </p>
+                </td>
+              </tr>
+            </table>
+
+            <p style="margin:18px 0 0;font-size:12px;line-height:1.6;color:#64748b;">
+              This is an automated booking security email from Book That Boat.
+            </p>
+          </td>
+        </tr>
+      </table>
     </div>
   `
 
