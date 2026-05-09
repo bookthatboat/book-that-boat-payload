@@ -138,6 +138,91 @@ const RESERVATION_STATUS_OPTIONS: Array<{ label: string; value: ReservationStatu
 
 const ACTIVE_PAYMENT_ROW_STATUSES = new Set(['scheduled', 'pending', 'completed'])
 
+type CancellationWindow =
+  | 'more_than_72_hours'
+  | 'between_24_and_72_hours'
+  | 'less_than_24_hours'
+  | 'trip_started'
+  | 'unknown'
+
+const getHoursUntilTrip = (startTime?: Date | string | null, now = new Date()): number | null => {
+  if (!startTime) return null
+
+  const tripStart = asDate(startTime)
+
+  if (Number.isNaN(tripStart.getTime())) return null
+
+  const hours = (tripStart.getTime() - now.getTime()) / (1000 * 60 * 60)
+
+  return Math.round(hours * 10) / 10
+}
+
+const getCancellationPolicyResult = ({
+  startTime,
+  totalPrice,
+  paidAmount,
+  now = new Date(),
+}: {
+  startTime?: Date | string | null
+  totalPrice?: number | null
+  paidAmount?: number | null
+  now?: Date
+}) => {
+  const hoursUntilTrip = getHoursUntilTrip(startTime, now)
+
+  let cancellationWindow: CancellationWindow = 'unknown'
+  let refundPercentage: 0 | 50 | 100 = 0
+
+  if (hoursUntilTrip === null) {
+    cancellationWindow = 'unknown'
+    refundPercentage = 0
+  } else if (hoursUntilTrip <= 0) {
+    cancellationWindow = 'trip_started'
+    refundPercentage = 0
+  } else if (hoursUntilTrip <= 24) {
+    cancellationWindow = 'less_than_24_hours'
+    refundPercentage = 0
+  } else if (hoursUntilTrip <= 72) {
+    cancellationWindow = 'between_24_and_72_hours'
+    refundPercentage = 50
+  } else {
+    cancellationWindow = 'more_than_72_hours'
+    refundPercentage = 100
+  }
+
+  const safePaidAmount = Math.max(0, Number(paidAmount || 0))
+  const safeTotalPrice = Math.max(0, Number(totalPrice || 0))
+  const refundableBase = safePaidAmount > 0 ? safePaidAmount : safeTotalPrice
+  const estimatedRefundAmount = Math.round(refundableBase * (refundPercentage / 100))
+
+  return {
+    hoursUntilTrip,
+    cancellationWindow,
+    refundPercentage,
+    estimatedRefundAmount,
+    canCustomerAddExtras: hoursUntilTrip !== null && hoursUntilTrip > 24,
+  }
+}
+
+const getCompletedReservationPaidAmount = (reservation: any): number => {
+  const payments = Array.isArray(reservation?.payments) ? reservation.payments : []
+
+  return payments.reduce((sum: number, payment: any) => {
+    if (payment?.status !== 'completed') return sum
+
+    return sum + Number(payment?.amount || 0)
+  }, 0)
+}
+
+const getReservationPolicyResult = (reservation: any) => {
+  return getCancellationPolicyResult({
+    startTime: reservation?.startTime,
+    totalPrice: Number(reservation?.totalPrice || 0),
+    paidAmount: getCompletedReservationPaidAmount(reservation),
+  })
+}
+
+
 const getPaymentRequestRowForEmail = (reservation: any) => {
   const payments = Array.isArray(reservation?.payments) ? reservation.payments : []
   const topLevelPaymentLinkId = String(reservation?.paymentLinkId || '').trim()
@@ -4774,6 +4859,259 @@ export const Reservations: CollectionConfig = {
 
         return message || true
       },
+    },
+    {
+      name: 'customerManagementPolicy',
+      type: 'group',
+      label: 'Customer Management Policy',
+      admin: {
+        description:
+          'Read-only policy summary for customer booking management, cancellation refunds, and extras cutoff.',
+        condition: (data) => !!data?.startTime,
+      },
+      fields: [
+        {
+          name: 'hoursUntilTrip',
+          type: 'number',
+          label: 'Hours Until Trip',
+          admin: {
+            readOnly: true,
+            description: 'Calculated from the reservation start time.',
+          },
+          hooks: {
+            afterRead: [
+              ({ data }) => {
+                const result = getReservationPolicyResult(data)
+                return result.hoursUntilTrip
+              },
+            ],
+          },
+        },
+        {
+          name: 'cancellationWindow',
+          type: 'select',
+          label: 'Cancellation Window',
+          options: [
+            { label: 'More than 72 hours', value: 'more_than_72_hours' },
+            { label: 'Between 24 and 72 hours', value: 'between_24_and_72_hours' },
+            { label: 'Less than 24 hours', value: 'less_than_24_hours' },
+            { label: 'Trip already started', value: 'trip_started' },
+            { label: 'Unknown', value: 'unknown' },
+          ],
+          admin: {
+            readOnly: true,
+          },
+          hooks: {
+            afterRead: [
+              ({ data }) => {
+                const result = getReservationPolicyResult(data)
+                return result.cancellationWindow
+              },
+            ],
+          },
+        },
+        {
+          name: 'refundPercentage',
+          type: 'number',
+          label: 'Refund Percentage',
+          admin: {
+            readOnly: true,
+            description:
+              '100% when more than 72 hours away, 50% between 24 and 72 hours, 0% within 24 hours.',
+          },
+          hooks: {
+            afterRead: [
+              ({ data }) => {
+                const result = getReservationPolicyResult(data)
+                return result.refundPercentage
+              },
+            ],
+          },
+        },
+        {
+          name: 'estimatedRefundAmount',
+          type: 'number',
+          label: 'Estimated Refund Amount (AED)',
+          admin: {
+            readOnly: true,
+            description:
+              'Calculated against completed paid amount where available, otherwise reservation total.',
+          },
+          hooks: {
+            afterRead: [
+              ({ data }) => {
+                const result = getReservationPolicyResult(data)
+                return result.estimatedRefundAmount
+              },
+            ],
+          },
+        },
+        {
+          name: 'canCustomerAddExtras',
+          type: 'checkbox',
+          label: 'Customer Can Add Extras',
+          admin: {
+            readOnly: true,
+            description: 'Customers can add extras only when the trip is more than 24 hours away.',
+          },
+          hooks: {
+            afterRead: [
+              ({ data }) => {
+                const result = getReservationPolicyResult(data)
+                return result.canCustomerAddExtras
+              },
+            ],
+          },
+        },
+      ],
+    },
+    {
+      name: 'customerCancellation',
+      type: 'group',
+      label: 'Customer Cancellation',
+      admin: {
+        description:
+          'Audit trail for customer cancellation requests and refund entitlement. Refunds should be reviewed by admin before payment is returned.',
+      },
+      fields: [
+        {
+          name: 'requestedAt',
+          type: 'date',
+          label: 'Cancellation Requested At',
+          admin: {
+            readOnly: true,
+            date: { pickerAppearance: 'dayAndTime' },
+          },
+        },
+        {
+          name: 'cancelledAt',
+          type: 'date',
+          label: 'Cancelled At',
+          admin: {
+            readOnly: true,
+            date: { pickerAppearance: 'dayAndTime' },
+          },
+        },
+        {
+          name: 'cancelledBy',
+          type: 'select',
+          label: 'Cancelled By',
+          options: [
+            { label: 'Customer', value: 'customer' },
+            { label: 'Admin', value: 'admin' },
+            { label: 'System', value: 'system' },
+          ],
+          admin: {
+            readOnly: true,
+          },
+        },
+        {
+          name: 'reason',
+          type: 'textarea',
+          label: 'Cancellation Reason',
+          admin: {
+            readOnly: true,
+          },
+        },
+        {
+          name: 'refundPercentage',
+          type: 'number',
+          label: 'Refund Percentage',
+          admin: {
+            readOnly: true,
+          },
+        },
+        {
+          name: 'refundAmount',
+          type: 'number',
+          label: 'Refund Amount (AED)',
+          admin: {
+            readOnly: true,
+          },
+        },
+        {
+          name: 'cancellationWindow',
+          type: 'select',
+          label: 'Cancellation Window',
+          options: [
+            { label: 'More than 72 hours', value: 'more_than_72_hours' },
+            { label: 'Between 24 and 72 hours', value: 'between_24_and_72_hours' },
+            { label: 'Less than 24 hours', value: 'less_than_24_hours' },
+            { label: 'Trip already started', value: 'trip_started' },
+            { label: 'Unknown', value: 'unknown' },
+          ],
+          admin: {
+            readOnly: true,
+          },
+        },
+        {
+          name: 'refundStatus',
+          type: 'select',
+          label: 'Refund Status',
+          defaultValue: 'not_required',
+          options: [
+            { label: 'Not Required', value: 'not_required' },
+            { label: 'Refund Due', value: 'refund_due' },
+            { label: 'Refunded', value: 'refunded' },
+            { label: 'Rejected', value: 'rejected' },
+          ],
+          admin: {
+            readOnly: true,
+          },
+        },
+      ],
+    },
+    {
+      name: 'customerManagementAuth',
+      type: 'group',
+      label: 'Customer Management Auth',
+      admin: {
+        position: 'sidebar',
+        description:
+          'Hidden authentication metadata for future customer manage-booking OTP or magic-link access.',
+      },
+      fields: [
+        {
+          name: 'verificationCodeHash',
+          type: 'text',
+          admin: {
+            hidden: true,
+            readOnly: true,
+          },
+        },
+        {
+          name: 'verificationCodeExpiresAt',
+          type: 'date',
+          admin: {
+            hidden: true,
+            readOnly: true,
+          },
+        },
+        {
+          name: 'managementTokenHash',
+          type: 'text',
+          admin: {
+            hidden: true,
+            readOnly: true,
+          },
+        },
+        {
+          name: 'managementTokenExpiresAt',
+          type: 'date',
+          admin: {
+            hidden: true,
+            readOnly: true,
+          },
+        },
+        {
+          name: 'lastVerifiedAt',
+          type: 'date',
+          admin: {
+            hidden: true,
+            readOnly: true,
+          },
+        },
+      ],
     },
     {
       name: 'paymentLinkId',
