@@ -450,7 +450,11 @@ export interface Reservation {
     cancellationWindow?:
       | ('more_than_72_hours' | 'between_24_and_72_hours' | 'less_than_24_hours' | 'trip_started' | 'unknown')
       | null;
-    refundStatus?: ('not_required' | 'refund_due' | 'refunded' | 'rejected') | null;
+    refundStatus?: ('not_required' | 'refund_due' | 'approved' | 'refunded' | 'rejected') | null;
+    approvedAt?: string | null;
+    approvedBy?: (string | null) | User;
+    approvalNotes?: string | null;
+    refundedAt?: string | null;
   };
   /**
    * Hidden authentication metadata for future customer manage-booking OTP or magic-link access.
@@ -2231,6 +2235,32 @@ export interface EventType {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "users".
+ */
+export interface User {
+  id: string;
+  name: string;
+  role: 'admin' | 'user';
+  updatedAt: string;
+  createdAt: string;
+  email: string;
+  resetPasswordToken?: string | null;
+  resetPasswordExpiration?: string | null;
+  salt?: string | null;
+  hash?: string | null;
+  loginAttempts?: number | null;
+  lockUntil?: string | null;
+  sessions?:
+    | {
+        id: string;
+        createdAt?: string | null;
+        expiresAt: string;
+      }[]
+    | null;
+  password?: string | null;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "extras".
  */
 export interface Extra {
@@ -2401,32 +2431,6 @@ export interface Footer {
   copyright: string;
   updatedAt: string;
   createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "users".
- */
-export interface User {
-  id: string;
-  name: string;
-  role: 'admin' | 'user';
-  updatedAt: string;
-  createdAt: string;
-  email: string;
-  resetPasswordToken?: string | null;
-  resetPasswordExpiration?: string | null;
-  salt?: string | null;
-  hash?: string | null;
-  loginAttempts?: number | null;
-  lockUntil?: string | null;
-  sessions?:
-    | {
-        id: string;
-        createdAt?: string | null;
-        expiresAt: string;
-      }[]
-    | null;
-  password?: string | null;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
@@ -2632,6 +2636,10 @@ export interface ReservationsSelect<T extends boolean = true> {
         refundAmount?: T;
         cancellationWindow?: T;
         refundStatus?: T;
+        approvedAt?: T;
+        approvedBy?: T;
+        approvalNotes?: T;
+        refundedAt?: T;
       };
   customerManagementAuth?:
     | T
