@@ -3932,7 +3932,24 @@ export const Reservations: CollectionConfig = {
           (data as any)?.parkingLocationPin || (originalDoc as any)?.parkingLocationPin || '',
         ).trim()
 
+        const payments = Array.isArray((data as any)?.payments)
+          ? (data as any).payments
+          : Array.isArray((originalDoc as any)?.payments)
+            ? (originalDoc as any).payments
+            : []
+
+        const totalPrice = Number((data as any)?.totalPrice ?? (originalDoc as any)?.totalPrice ?? 0)
+
+        const activePayments = payments.filter((payment: any) =>
+          ['scheduled', 'pending', 'completed'].includes(payment?.status),
+        )
+
+        const activePaymentTotal = activePayments.reduce((sum: number, payment: any) => {
+          return sum + Number(payment?.amount || 0)
+        }, 0)
+
         const missing: string[] = []
+
         if (!meetingPointName) missing.push('Meeting Point - Name')
         if (!meetingPointPin) missing.push('Meeting Point - Google Maps Pin')
         if (!contactPersonName) missing.push('Contact Person - Name')
@@ -3940,9 +3957,34 @@ export const Reservations: CollectionConfig = {
         if (!parkingLocationName) missing.push('Car Parking Location - Name')
         if (!parkingLocationPin) missing.push('Car Parking Location - Google Maps Pin')
 
+        if (activePayments.length === 0) {
+          missing.push(
+            'Payment Schedule Manager - add at least one scheduled, awaiting, or received payment row',
+          )
+        }
+
+        if (
+          totalPrice > 0 &&
+          activePayments.length > 0 &&
+          Math.round(activePaymentTotal) < Math.round(totalPrice)
+        ) {
+          missing.push(
+            `Payment Schedule Manager - active payment rows must cover the reservation total of AED ${Math.round(
+              totalPrice,
+            ).toLocaleString()}. Current active payment total is AED ${Math.round(
+              activePaymentTotal,
+            ).toLocaleString()}`,
+          )
+        }
+
         if (missing.length) {
           throw new Error(
-            `Cannot change status from "pending" to "awaiting payment" until these fields are completed: ${missing.join(', ')}`,
+            [
+              'Cannot move this reservation to Awaiting Payment yet.',
+              '',
+              'Please complete:',
+              ...missing.map((item) => `- ${item}`),
+            ].join('\n'),
           )
         }
 
