@@ -484,3 +484,133 @@
 .btb-admin-nav-link a:hover {
   background: var(--theme-elevation-100);
 }
+/* Mobile reservation admin page */
+.btb-reservation-payments,
+.btb-reservation-price {
+  max-width: 100%;
+}
+
+.btb-reservation-payments__table-wrap {
+  max-width: 100%;
+}
+
+.btb-reservation-payments__table input,
+.btb-reservation-payments__table select,
+.btb-reservation-payments__table textarea {
+  min-height: 38px;
+}
+
+@media (max-width: 760px) {
+  /* Payload reservation edit page: improve mobile spacing/tap targets without changing desktop. */
+  [href*="/admin/collections/reservations"] {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .btb-reservation-price,
+  .btb-reservation-payments {
+    border-radius: 14px !important;
+    margin-left: -4px;
+    margin-right: -4px;
+  }
+
+  .btb-reservation-price__header,
+  .btb-reservation-payments__header {
+    padding: 14px !important;
+  }
+
+  .btb-reservation-price__grid,
+  .btb-reservation-payments__summary {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+    padding: 14px !important;
+  }
+
+  .btb-reservation-price__card,
+  .btb-reservation-payments__summary-card {
+    border-radius: 12px !important;
+    padding: 12px !important;
+  }
+
+  .btb-reservation-payments__actions {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    padding: 14px !important;
+  }
+
+  .btb-reservation-payments__actions button,
+  .btb-reservation-payments button {
+    justify-content: center;
+    min-height: 42px;
+    width: 100%;
+  }
+
+  .btb-reservation-payments__message {
+    padding: 0 14px 14px !important;
+  }
+
+  /* Turn the payment schedule table into stacked mobile cards. */
+  .btb-reservation-payments__table-wrap {
+    padding: 14px !important;
+    overflow: visible !important;
+  }
+
+  .btb-reservation-payments__table,
+  .btb-reservation-payments__table thead,
+  .btb-reservation-payments__table tbody,
+  .btb-reservation-payments__table tr,
+  .btb-reservation-payments__table th,
+  .btb-reservation-payments__table td {
+    display: block;
+    width: 100%;
+  }
+
+  .btb-reservation-payments__table thead {
+    display: none;
+  }
+
+  .btb-reservation-payments__row {
+    border: 1px solid var(--theme-elevation-150);
+    border-radius: 14px;
+    margin-bottom: 14px;
+    padding: 12px;
+    background: var(--theme-elevation-50);
+  }
+
+  .btb-reservation-payments__td {
+    border-bottom: 0 !important;
+    padding: 8px 0 !important;
+  }
+
+  .btb-reservation-payments__td::before {
+    content: attr(data-label);
+    display: block;
+    color: var(--theme-elevation-500);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    margin-bottom: 5px;
+    text-transform: uppercase;
+  }
+
+  .btb-reservation-payments__td input,
+  .btb-reservation-payments__td select,
+  .btb-reservation-payments__td textarea {
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+
+  .btb-reservation-payments__td textarea {
+    min-height: 82px !important;
+  }
+
+  .btb-reservation-payments__td > div[style*="display: flex"] {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Make Payload reservation fields easier to use on small screens. */
+  .payload-admin .field-type,
+  .payload-admin .field-type__wrap {
+    max-width: 100%;
+  }
+}
