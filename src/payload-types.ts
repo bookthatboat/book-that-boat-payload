@@ -511,6 +511,10 @@ export interface Boat {
    * Archived boats remain in the system for old reservations but are hidden from the public frontend.
    */
   archived?: boolean | null;
+  /**
+   * Automatically shows whether this yacht is Active or Archived.
+   */
+  yachtStatus?: string | null;
   slug: string;
   owner?: (string | null) | Owner;
   name: string;
@@ -2669,6 +2673,7 @@ export interface OwnersSelect<T extends boolean = true> {
  */
 export interface BoatsSelect<T extends boolean = true> {
   archived?: T;
+  yachtStatus?: T;
   slug?: T;
   owner?: T;
   name?: T;
