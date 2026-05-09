@@ -4394,6 +4394,158 @@ const sendAdminRefundPendingEmail = async ({
 }
 
 
+
+
+
+const getReservationBoatId = (reservation: any): string | null => {
+  return getRelationshipId(reservation?.boat)
+}
+
+const getBoatForReservation = async ({
+  payload,
+  reservation,
+}: {
+  payload: any
+  reservation: any
+}) => {
+  const boat = reservation?.boat
+
+  if (boat && typeof boat === 'object' && boat.id) return boat
+
+  const boatId = getReservationBoatId(reservation)
+  if (!boatId) return null
+
+  return payload.findByID({
+    collection: 'boats',
+    id: boatId,
+    depth: 2,
+    overrideAccess: true,
+  })
+}
+
+
+const isArchivedRecord = (record: any): boolean => {
+  return (
+    record?.archived === true ||
+    record?.isArchived === true ||
+    String(record?.status || '').toLowerCase() === 'archived'
+  )
+}
+
+const getExtraDisplayName = (extra: any): string => {
+  return String(extra?.name || extra?.title || extra?.label || 'Extra')
+}
+
+const getExtraUnitPrice = (extra: any): number => {
+  const raw =
+    extra?.price ??
+    extra?.unitPrice ??
+    extra?.amount ??
+    extra?.salePrice ??
+    extra?.totalPrice ??
+    0
+
+  const value = Number(raw)
+
+  return Number.isFinite(value) && value > 0 ? value : 0
+}
+
+const normalizeCustomerExtraQuantity = (value: unknown): number => {
+  const quantity = Math.floor(Number(value || 0))
+
+  if (!Number.isFinite(quantity) || quantity < 1) return 1
+  if (quantity > 20) return 20
+
+  return quantity
+}
+
+const getAvailableExtrasForReservation = async ({
+  payload,
+  reservation,
+}: {
+  payload: any
+  reservation: any
+}) => {
+  const boat = await getBoatForReservation({ payload, reservation })
+  const boatId = getRelationshipId(boat)
+
+  if (!boat || !boatId) return []
+
+  const extrasMap = new Map<string, any>()
+
+  const addExtra = (extra: any) => {
+    if (!extra || typeof extra !== 'object') return
+    if (isArchivedRecord(extra)) return
+
+    const id = getRelationshipId(extra)
+    if (!id) return
+
+    extrasMap.set(id, extra)
+  }
+
+  // 1) Extras linked directly on the boat.
+  if (Array.isArray(boat?.extras)) {
+    const linkedExtraIds = getRelationshipIds(boat.extras)
+
+    boat.extras.forEach((extra: any) => {
+      if (extra && typeof extra === 'object') addExtra(extra)
+    })
+
+    if (linkedExtraIds.length > 0) {
+      const linkedResult = await payload.find({
+        collection: 'extras',
+        where: {
+          id: {
+            in: linkedExtraIds,
+          },
+        },
+        limit: 100,
+        depth: 1,
+        overrideAccess: true,
+      })
+
+      const docs = Array.isArray(linkedResult?.docs) ? linkedResult.docs : []
+      docs.forEach(addExtra)
+    }
+  }
+
+  // 2) Backwards compatibility: extras where the extra owns the boat relationship.
+  const byBoatResult = await payload.find({
+    collection: 'extras',
+    where: {
+      boat: {
+        equals: boatId,
+      },
+    },
+    limit: 100,
+    depth: 1,
+    overrideAccess: true,
+  }).catch(() => null)
+
+  const byBoatDocs = Array.isArray(byBoatResult?.docs) ? byBoatResult.docs : []
+  byBoatDocs.forEach(addExtra)
+
+  return Array.from(extrasMap.values()).map((extra) => ({
+    id: String(extra.id),
+    name: getExtraDisplayName(extra),
+    description: extra.description || extra.shortDescription || '',
+    price: getExtraUnitPrice(extra),
+    image: extra.image || null,
+    raw: extra,
+  }))
+}
+
+const getCustomerExtrasSummary = (extras: any[]) => {
+  return extras.map((extra) => ({
+    id: extra.id,
+    name: extra.name,
+    description: extra.description,
+    price: extra.price,
+    image: extra.image,
+  }))
+}
+
+
 export const Reservations: CollectionConfig = {
   slug: 'reservations',
   endpoints: [
@@ -5038,6 +5190,331 @@ export const Reservations: CollectionConfig = {
     }
     },
     },
+
+    {
+      path: '/customer-management/available-extras',
+      method: 'get',
+      handler: async (req) => {
+        try {
+          const requestUrl = req.url
+            ? new URL(req.url)
+            : new URL('http://localhost/api/reservations/customer-management/available-extras')
+
+          const authorizationHeader =
+            typeof req.headers?.get === 'function' ? req.headers.get('authorization') || '' : ''
+
+          const token =
+            requestUrl.searchParams.get('token') ||
+            String(authorizationHeader).replace(/^Bearer\s+/i, '')
+
+          const reservation = await findReservationByManagementToken({
+            payload: req.payload,
+            token,
+          })
+
+          if (!reservation) {
+            return Response.json(
+              {
+                success: false,
+                message: 'Invalid or expired booking management token.',
+              },
+              {
+                status: 401,
+              },
+            )
+          }
+
+          const policy = getReservationPolicyResult(reservation)
+
+          if (!policy.canCustomerAddExtras) {
+            return Response.json({
+              success: true,
+              canAddExtras: false,
+              message: 'Extras are locked because the trip is within 24 hours or has already started.',
+              extras: [],
+              booking: getCustomerReservationSummary(reservation),
+            })
+          }
+
+          const availableExtras = await getAvailableExtrasForReservation({
+            payload: req.payload,
+            reservation,
+          })
+
+          return Response.json({
+            success: true,
+            canAddExtras: true,
+            extras: getCustomerExtrasSummary(availableExtras),
+            booking: getCustomerReservationSummary(reservation),
+          })
+        } catch (error) {
+          console.error('[customer-management/available-extras] failed', error)
+
+          return Response.json(
+            {
+              success: false,
+              message: 'Could not load available extras.',
+            },
+            {
+              status: 500,
+            },
+          )
+        }
+      },
+    },
+    {
+      path: '/customer-management/add-extras',
+      method: 'post',
+      handler: async (req) => {
+        try {
+          const body = await getRequestJsonBody(req)
+          const token = String(body?.token || '').trim()
+          const selectedExtras = Array.isArray(body?.extras) ? body.extras : []
+
+          if (!token) {
+            return Response.json(
+              {
+                success: false,
+                message: 'Booking management token is required.',
+              },
+              {
+                status: 400,
+              },
+            )
+          }
+
+          if (selectedExtras.length === 0) {
+            return Response.json(
+              {
+                success: false,
+                message: 'Please select at least one extra.',
+              },
+              {
+                status: 400,
+              },
+            )
+          }
+
+          const reservation = await findReservationByManagementToken({
+            payload: req.payload,
+            token,
+          })
+
+          if (!reservation) {
+            return Response.json(
+              {
+                success: false,
+                message: 'Invalid or expired booking management token.',
+              },
+              {
+                status: 401,
+              },
+            )
+          }
+
+          if (String(reservation.status || '').toLowerCase() === 'cancelled') {
+            return Response.json(
+              {
+                success: false,
+                message: 'Extras cannot be added to a cancelled booking.',
+              },
+              {
+                status: 400,
+              },
+            )
+          }
+
+          const policy = getReservationPolicyResult(reservation)
+
+          if (!policy.canCustomerAddExtras) {
+            return Response.json(
+              {
+                success: false,
+                message: 'Extras are locked because the trip is within 24 hours or has already started.',
+              },
+              {
+                status: 400,
+              },
+            )
+          }
+
+          const availableExtras = await getAvailableExtrasForReservation({
+            payload: req.payload,
+            reservation,
+          })
+
+          const availableExtrasMap = new Map<string, any>()
+          availableExtras.forEach((extra) => availableExtrasMap.set(String(extra.id), extra))
+
+          const normalizedSelections = selectedExtras
+            .map((item: any) => {
+              const extraId = String(item?.extraId || item?.id || item?.extra || '').trim()
+              const quantity = normalizeCustomerExtraQuantity(item?.quantity)
+
+              return {
+                extraId,
+                quantity,
+              }
+            })
+            .filter((item: any) => item.extraId && availableExtrasMap.has(item.extraId))
+
+          if (normalizedSelections.length === 0) {
+            return Response.json(
+              {
+                success: false,
+                message: 'None of the selected extras are available for this yacht.',
+              },
+              {
+                status: 400,
+              },
+            )
+          }
+
+          const existingExtras = Array.isArray(reservation.extras) ? reservation.extras : []
+          const mergedExtras = [...existingExtras]
+
+          let addedAmount = 0
+          const addedItems: Array<{
+            extraId: string
+            name: string
+            quantity: number
+            unitPrice: number
+            total: number
+          }> = []
+
+          normalizedSelections.forEach((selection: { extraId: string; quantity: number }) => {
+            const availableExtra = availableExtrasMap.get(selection.extraId)
+            const unitPrice = Number(availableExtra?.price || 0)
+            const lineTotal = unitPrice * selection.quantity
+
+            if (lineTotal <= 0) return
+
+            addedAmount += lineTotal
+            addedItems.push({
+              extraId: selection.extraId,
+              name: availableExtra.name,
+              quantity: selection.quantity,
+              unitPrice,
+              total: lineTotal,
+            })
+
+            const existingIndex = mergedExtras.findIndex((row: any) => {
+              return getRelationshipId(row?.extra) === selection.extraId
+            })
+
+            if (existingIndex >= 0) {
+              const existingRow = mergedExtras[existingIndex]
+              mergedExtras[existingIndex] = {
+                ...existingRow,
+                quantity: Number(existingRow?.quantity || 0) + selection.quantity,
+                unitPrice: Number(existingRow?.unitPrice || unitPrice),
+              }
+            } else {
+              mergedExtras.push({
+                extra: selection.extraId,
+                quantity: selection.quantity,
+                unitPrice,
+              })
+            }
+          })
+
+          addedAmount = Math.round(addedAmount)
+
+          if (addedAmount <= 0) {
+            return Response.json(
+              {
+                success: false,
+                message: 'Selected extras do not have a valid price.',
+              },
+              {
+                status: 400,
+              },
+            )
+          }
+
+          const existingPayments = Array.isArray(reservation.payments) ? reservation.payments : []
+          const existingTotalPrice = Number(reservation.totalPrice || 0)
+          const newTotalPrice = existingTotalPrice + addedAmount
+
+          const existingPaidAmount = getCompletedReservationPaidAmount(reservation)
+          const newBalanceDue = Math.max(0, Math.round(newTotalPrice - existingPaidAmount))
+
+          const feeFields = getPaymentFeeFields({
+            amount: addedAmount,
+            method: 'Mamo Pay',
+          })
+
+          const extraPaymentRow = {
+            id: `extra-${Date.now()}`,
+            kind: 'adjustment',
+            createdAt: new Date().toISOString(),
+            installedAt: new Date().toISOString(),
+            amount: addedAmount,
+            method: 'Mamo Pay',
+            ...feeFields,
+            date: new Date().toISOString(),
+            status: 'scheduled',
+            balance: newBalanceDue,
+            notes: `Customer added extras from manage booking: ${addedItems
+              .map((item) => `${item.name} x ${item.quantity}`)
+              .join(', ')}`,
+          }
+
+          const updatedPayments = [...existingPayments, extraPaymentRow]
+          const nextStatus = getReservationStatusFromPayments({
+            payments: updatedPayments,
+            totalPrice: newTotalPrice,
+          })
+
+          let updatedReservation = await req.payload.update({
+            collection: 'reservations',
+            id: reservation.id,
+            data: {
+              extras: mergedExtras,
+              totalPrice: newTotalPrice,
+              status: nextStatus,
+              payments: updatedPayments,
+              paymentsUpdateSource: 'payment-manager',
+            } as any,
+            overrideAccess: true,
+            context: {
+              paymentsUpdateSource: 'payment-manager',
+            },
+          })
+
+          await activateDueScheduledPayments(req.payload)
+
+          updatedReservation = await req.payload.findByID({
+            collection: 'reservations',
+            id: reservation.id,
+            depth: 2,
+            overrideAccess: true,
+          })
+
+          return Response.json({
+            success: true,
+            message:
+              'Extras have been added to your booking. Any additional payment due has been added to your payment schedule.',
+            addedAmount,
+            addedItems,
+            booking: getCustomerReservationSummary(updatedReservation),
+          })
+        } catch (error) {
+          console.error('[customer-management/add-extras] failed', error)
+
+          return Response.json(
+            {
+              success: false,
+              message: 'Could not add extras to booking.',
+            },
+            {
+              status: 500,
+            },
+          )
+        }
+      },
+    },
+
   ],
 
   admin: {
