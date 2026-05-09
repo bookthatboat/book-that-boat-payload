@@ -138,6 +138,43 @@ const RESERVATION_STATUS_OPTIONS: Array<{ label: string; value: ReservationStatu
 
 const ACTIVE_PAYMENT_ROW_STATUSES = new Set(['scheduled', 'pending', 'completed'])
 
+const getPaymentRequestRowForEmail = (reservation: any) => {
+  const payments = Array.isArray(reservation?.payments) ? reservation.payments : []
+  const topLevelPaymentLinkId = String(reservation?.paymentLinkId || '').trim()
+  const topLevelPaymentLink = String(reservation?.paymentLink || '').trim()
+
+  const byTopLevelLink = payments.find((payment: any) => {
+    return (
+      payment?.method === 'Mamo Pay' &&
+      payment?.status === 'pending' &&
+      (
+        (topLevelPaymentLinkId && payment?.paymentLinkId === topLevelPaymentLinkId) ||
+        (topLevelPaymentLink && payment?.paymentLink === topLevelPaymentLink)
+      )
+    )
+  })
+
+  if (byTopLevelLink) return byTopLevelLink
+
+  const pendingMamoWithLink = payments.find((payment: any) => {
+    return (
+      payment?.method === 'Mamo Pay' &&
+      payment?.status === 'pending' &&
+      (payment?.paymentLink || payment?.paymentLinkId)
+    )
+  })
+
+  if (pendingMamoWithLink) return pendingMamoWithLink
+
+  const pendingMamo = payments.find((payment: any) => {
+    return payment?.method === 'Mamo Pay' && payment?.status === 'pending'
+  })
+
+  if (pendingMamo) return pendingMamo
+
+  return payments.find((payment: any) => payment?.status === 'pending') || null
+}
+
 const getReservationPaymentTotals = (payments: any[] | undefined, totalPrice: number) => {
   const activePayments = Array.isArray(payments)
     ? payments.filter((payment) => ACTIVE_PAYMENT_ROW_STATUSES.has(payment?.status || ''))
@@ -1850,6 +1887,27 @@ const getCreativeEmailTemplate = (
       const requestId = reservation.transactionId || reservation.id
       const paymentLink = (reservation.paymentLink || '#').trim()
 
+      const paymentRequestRow = getPaymentRequestRowForEmail(reservation)
+      const paymentRequestAmount = Number(
+        paymentRequestRow?.customerPayableAmount ||
+          paymentRequestRow?.amount ||
+          reservation.totalPrice ||
+          0,
+      )
+      const paymentRequestAmountStr =
+        Number.isFinite(paymentRequestAmount) && paymentRequestAmount > 0
+          ? `AED ${Math.round(paymentRequestAmount).toLocaleString()}`
+          : totalPriceStr
+
+      const bookingTotalNote =
+        paymentRequestRow &&
+        Math.round(Number(paymentRequestRow.amount || 0)) !== Math.round(totalPriceNumber)
+          ? `<tr>
+                      <td style="padding:12px 12px;background:#f3f4f6;color:#111827;font-weight:700;">Booking Total</td>
+                      <td style="padding:12px 12px;background:#ffffff;color:#111827;font-weight:800;">${totalPriceStr}</td>
+                    </tr>`
+          : ''
+
       return `
         <!DOCTYPE html>
         <html>
@@ -1911,8 +1969,9 @@ const getCreativeEmailTemplate = (
                     </tr>
                     <tr>
                       <td style="padding:12px 12px;background:#f3f4f6;color:#111827;font-weight:800;">Amount Due</td>
-                      <td style="padding:12px 12px;background:#ffffff;color:#ef6c00;font-weight:900;">${totalPriceStr}</td>
+                      <td style="padding:12px 12px;background:#ffffff;color:#ef6c00;font-weight:900;">${paymentRequestAmountStr}</td>
                     </tr>
+                    ${bookingTotalNote}
                   </table>
                 </div>
         
@@ -2523,6 +2582,17 @@ const createPaymentRowForOutstanding = async ({
 
   if (method !== 'Mamo Pay') {
     return basePayment
+  }
+
+  const reservationStatus = String(doc.status || '')
+
+  // Pending reservations are still being prepared by the admin.
+  // Do not create/send Mamo Pay links until the payment request workflow starts.
+  if (!ACTIVE_RESERVATION_PAYMENT_STATUSES.includes(reservationStatus as any)) {
+    return {
+      ...basePayment,
+      notes: `${notes || ''}${notes ? '\n' : ''}Mamo Pay link will be generated when the reservation is moved to Awaiting Payment.`,
+    }
   }
 
   const boatId = typeof doc.boat === 'object' ? doc.boat.id : doc.boat
