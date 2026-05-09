@@ -413,6 +413,55 @@ export interface Reservation {
   startTime: string;
   endTime: string;
   status?: ('pending' | 'awaiting payment' | 'confirmed_balance_due' | 'confirmed' | 'cancelled') | null;
+  /**
+   * Read-only policy summary for customer booking management, cancellation refunds, and extras cutoff.
+   */
+  customerManagementPolicy?: {
+    /**
+     * Calculated from the reservation start time.
+     */
+    hoursUntilTrip?: number | null;
+    cancellationWindow?:
+      | ('more_than_72_hours' | 'between_24_and_72_hours' | 'less_than_24_hours' | 'trip_started' | 'unknown')
+      | null;
+    /**
+     * 100% when more than 72 hours away, 50% between 24 and 72 hours, 0% within 24 hours.
+     */
+    refundPercentage?: number | null;
+    /**
+     * Calculated against completed paid amount where available, otherwise reservation total.
+     */
+    estimatedRefundAmount?: number | null;
+    /**
+     * Customers can add extras only when the trip is more than 24 hours away.
+     */
+    canCustomerAddExtras?: boolean | null;
+  };
+  /**
+   * Audit trail for customer cancellation requests and refund entitlement. Refunds should be reviewed by admin before payment is returned.
+   */
+  customerCancellation?: {
+    requestedAt?: string | null;
+    cancelledAt?: string | null;
+    cancelledBy?: ('customer' | 'admin' | 'system') | null;
+    reason?: string | null;
+    refundPercentage?: number | null;
+    refundAmount?: number | null;
+    cancellationWindow?:
+      | ('more_than_72_hours' | 'between_24_and_72_hours' | 'less_than_24_hours' | 'trip_started' | 'unknown')
+      | null;
+    refundStatus?: ('not_required' | 'refund_due' | 'refunded' | 'rejected') | null;
+  };
+  /**
+   * Hidden authentication metadata for future customer manage-booking OTP or magic-link access.
+   */
+  customerManagementAuth?: {
+    verificationCodeHash?: string | null;
+    verificationCodeExpiresAt?: string | null;
+    managementTokenHash?: string | null;
+    managementTokenExpiresAt?: string | null;
+    lastVerifiedAt?: string | null;
+  };
   paymentLinkId?: string | null;
   paymentLink?: string | null;
   /**
@@ -2563,6 +2612,36 @@ export interface ReservationsSelect<T extends boolean = true> {
   startTime?: T;
   endTime?: T;
   status?: T;
+  customerManagementPolicy?:
+    | T
+    | {
+        hoursUntilTrip?: T;
+        cancellationWindow?: T;
+        refundPercentage?: T;
+        estimatedRefundAmount?: T;
+        canCustomerAddExtras?: T;
+      };
+  customerCancellation?:
+    | T
+    | {
+        requestedAt?: T;
+        cancelledAt?: T;
+        cancelledBy?: T;
+        reason?: T;
+        refundPercentage?: T;
+        refundAmount?: T;
+        cancellationWindow?: T;
+        refundStatus?: T;
+      };
+  customerManagementAuth?:
+    | T
+    | {
+        verificationCodeHash?: T;
+        verificationCodeExpiresAt?: T;
+        managementTokenHash?: T;
+        managementTokenExpiresAt?: T;
+        lastVerifiedAt?: T;
+      };
   paymentLinkId?: T;
   paymentLink?: T;
   customDiscountAmount?: T;
