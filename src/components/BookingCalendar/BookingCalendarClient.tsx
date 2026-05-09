@@ -366,6 +366,51 @@ export const BookingCalendarClient = ({ bookings }: Props) => {
           </div>
         </div>
 
+        <div className="btb-booking-calendar__mobile-agenda">
+          {filteredBookings.slice(0, 30).map((booking) => (
+            <article key={booking.id} className="btb-booking-calendar__mobile-agenda-card">
+              <div className="btb-booking-calendar__mobile-agenda-header">
+                <div>
+                  <strong>{booking.boatName}</strong>
+                  <span>{dateTimeFormatter.format(new Date(booking.startTime))} - {timeFormatter.format(new Date(booking.endTime))}</span>
+                </div>
+                <span className={`btb-booking-calendar__status ${getStatusClass(booking.status)}`}>
+                  {getStatusLabel(booking.status)}
+                </span>
+              </div>
+
+              <div className="btb-booking-calendar__mobile-agenda-meta">
+                <span>Guest: {booking.guestName}</span>
+                <span>Supplier: {booking.supplierName}</span>
+                {booking.guests ? <span>Guests: {booking.guests}</span> : null}
+                {booking.totalPrice ? <span>Total: {currencyFormatter.format(booking.totalPrice)}</span> : null}
+              </div>
+
+              <div className="btb-booking-calendar__quick-actions">
+                <a href={booking.adminUrl}>Open reservation</a>
+                {booking.guestPhone ? (
+                  <>
+                    <a href={`tel:${booking.guestPhone}`}>Call guest</a>
+                    <a href={`https://wa.me/${normalisePhoneForLink(booking.guestPhone)}`} target="_blank" rel="noreferrer">
+                      WhatsApp guest
+                    </a>
+                  </>
+                ) : null}
+                {booking.meetingPointPin ? (
+                  <a href={booking.meetingPointPin} target="_blank" rel="noreferrer">
+                    Meeting point
+                  </a>
+                ) : null}
+                {booking.parkingLocationPin ? (
+                  <a href={booking.parkingLocationPin} target="_blank" rel="noreferrer">
+                    Parking
+                  </a>
+                ) : null}
+              </div>
+            </article>
+          ))}
+        </div>
+
         <div className="btb-booking-calendar__table-wrap">
           <table>
             <thead>
