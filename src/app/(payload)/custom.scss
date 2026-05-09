@@ -308,6 +308,47 @@
   align-items: center;
 }
 
+.btb-booking-calendar__mobile-agenda {
+  display: none;
+}
+
+.btb-booking-calendar__mobile-agenda-card {
+  border: 1px solid var(--btb-border);
+  border-radius: 14px;
+  padding: 14px;
+  background: #fff;
+}
+
+.btb-booking-calendar__mobile-agenda-card + .btb-booking-calendar__mobile-agenda-card {
+  margin-top: 12px;
+}
+
+.btb-booking-calendar__mobile-agenda-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.btb-booking-calendar__mobile-agenda-header strong,
+.btb-booking-calendar__mobile-agenda-header span {
+  display: block;
+}
+
+.btb-booking-calendar__mobile-agenda-header > div > span {
+  color: var(--btb-muted);
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.btb-booking-calendar__mobile-agenda-meta {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  color: var(--btb-muted);
+  font-size: 13px;
+}
+
 .btb-booking-calendar__info-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -414,8 +455,16 @@
     width: 100%;
   }
 
+  .btb-booking-calendar__mobile-agenda {
+    display: block;
+  }
+
   .btb-booking-calendar__table-wrap {
     display: none;
+  }
+
+  .btb-booking-calendar__mobile-agenda-header {
+    flex-direction: column;
   }
 }
 .btb-admin-nav-link {
