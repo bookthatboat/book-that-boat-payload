@@ -650,8 +650,8 @@ export function ReservationPriceCalculator() {
   }, [calculation.finalTotal, setTotalPriceValue])
 
   return (
-    <div style={styles.wrap}>
-      <div style={styles.header}>
+    <div className="btb-reservation-price" style={styles.wrap}>
+      <div className="btb-reservation-price__header" style={styles.header}>
         <h3 style={styles.title}>Live Reservation Price</h3>
         <p style={styles.help}>
           This summary updates when the boat, time, extras, additional items, coupon, or custom
@@ -662,63 +662,63 @@ export function ReservationPriceCalculator() {
 
       {error && <div style={styles.error}>{error}</div>}
 
-      <div style={styles.grid}>
-        <div style={styles.card}>
+      <div className="btb-reservation-price__grid" style={styles.grid}>
+        <div className="btb-reservation-price__card" style={styles.card}>
           <div style={styles.label}>Duration</div>
           <div style={styles.value}>{calculation.hours || 0} hour(s)</div>
         </div>
 
-        <div style={styles.card}>
+        <div className="btb-reservation-price__card" style={styles.card}>
           <div style={styles.label}>Boat price</div>
           <div style={styles.value}>{money(calculation.basePrice)}</div>
         </div>
 
-        <div style={styles.card}>
+        <div className="btb-reservation-price__card" style={styles.card}>
           <div style={styles.label}>Extras</div>
           <div style={styles.value}>{money(calculation.extrasTotal)}</div>
         </div>
 
-        <div style={styles.card}>
+        <div className="btb-reservation-price__card" style={styles.card}>
           <div style={styles.label}>Additional items</div>
           <div style={styles.value}>{money(calculation.otherExtrasTotal)}</div>
         </div>
 
-        <div style={styles.card}>
+        <div className="btb-reservation-price__card" style={styles.card}>
           <div style={styles.label}>Coupon discount</div>
           <div style={styles.value}>-{money(calculation.couponDiscount)}</div>
         </div>
 
-        <div style={styles.card}>
+        <div className="btb-reservation-price__card" style={styles.card}>
           <div style={styles.label}>Custom discount</div>
           <div style={styles.value}>-{money(calculation.customDiscountAmount)}</div>
         </div>
 
-        <div style={styles.card}>
+        <div className="btb-reservation-price__card" style={styles.card}>
           <div style={styles.label}>Paid</div>
           <div style={styles.value}>{money(calculation.paidAmount)}</div>
         </div>
 
-        <div style={styles.card}>
+        <div className="btb-reservation-price__card" style={styles.card}>
           <div style={styles.label}>Pending / scheduled</div>
           <div style={styles.value}>{money(calculation.pendingAmount)}</div>
         </div>
 
-        <div style={styles.card}>
+        <div className="btb-reservation-price__card" style={styles.card}>
           <div style={styles.label}>Mamo fee total</div>
           <div style={styles.value}>{money(calculation.processingFeeTotal)}</div>
         </div>
 
-        <div style={styles.card}>
+        <div className="btb-reservation-price__card" style={styles.card}>
           <div style={styles.label}>Customer payable total</div>
           <div style={styles.value}>{money(calculation.customerPayableTotal)}</div>
         </div>
 
-        <div style={styles.card}>
+        <div className="btb-reservation-price__card" style={styles.card}>
           <div style={styles.label}>Balance still due</div>
           <div style={styles.value}>{money(calculation.balanceDue)}</div>
         </div>
 
-        <div style={styles.card}>
+        <div className="btb-reservation-price__card" style={styles.card}>
           <div style={styles.label}>Overpaid / review</div>
           <div style={styles.value}>{money(calculation.overpaidAmount)}</div>
         </div>
