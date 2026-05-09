@@ -44,7 +44,7 @@ export const Boats: CollectionConfig = {
     useAsTitle: 'name',
     defaultColumns: [
       'name',
-      'archived',
+      'yachtStatus',
       'owner',
       'location',
       'price',
@@ -196,6 +196,30 @@ export const Boats: CollectionConfig = {
         position: 'sidebar',
         description:
           'Archived boats remain in the system for old reservations but are hidden from the public frontend.',
+      },
+    },
+    {
+      name: 'yachtStatus',
+      type: 'text',
+      label: 'Status',
+      admin: {
+        readOnly: true,
+        position: 'sidebar',
+        description: 'Automatically shows whether this yacht is Active or Archived.',
+      },
+      hooks: {
+        beforeChange: [
+          ({ data, siblingData }) => {
+            const isArchived = Boolean(data?.archived ?? siblingData?.archived)
+            return isArchived ? 'Archived' : 'Active'
+          },
+        ],
+        afterRead: [
+          ({ data, siblingData }) => {
+            const isArchived = Boolean(data?.archived ?? siblingData?.archived)
+            return isArchived ? 'Archived' : 'Active'
+          },
+        ],
       },
     },
     {
