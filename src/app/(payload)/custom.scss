@@ -247,6 +247,67 @@
   margin: 0;
 }
 
+.btb-booking-calendar__status {
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 800;
+  margin-top: 8px;
+  padding: 5px 9px;
+  text-transform: uppercase;
+}
+
+.btb-booking-calendar__status.is-pending {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.btb-booking-calendar__status.is-awaiting {
+  background: #ffedd5;
+  color: #c2410c;
+}
+
+.btb-booking-calendar__status.is-balance {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.btb-booking-calendar__status.is-confirmed {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.btb-booking-calendar__status.is-cancelled {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.btb-booking-calendar__status.is-default {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.btb-booking-calendar__quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.btb-booking-calendar__quick-actions a {
+  background: #f8fafc;
+  border: 1px solid var(--btb-border);
+  border-radius: 999px;
+  color: #111827;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 800;
+  min-height: 34px;
+  padding: 0 12px;
+  text-decoration: none;
+  align-items: center;
+}
+
 .btb-booking-calendar__info-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -307,21 +368,54 @@
 
 @media (max-width: 760px) {
   .btb-booking-calendar {
+    padding: 12px;
+  }
+
+  .btb-booking-calendar__hero,
+  .btb-booking-calendar__toolbar,
+  .btb-booking-calendar__details,
+  .btb-booking-calendar__upcoming {
+    border-radius: 14px;
     padding: 16px;
   }
 
-  .btb-booking-calendar__weekdays,
-  .btb-booking-calendar__grid {
-    min-width: 860px;
-  }
-
   .btb-booking-calendar__grid-wrap {
-    overflow-x: auto;
+    display: none;
   }
 
   .btb-booking-calendar__stats,
   .btb-booking-calendar__info-grid {
     grid-template-columns: 1fr;
+  }
+
+  .btb-booking-calendar__toolbar,
+  .btb-booking-calendar__toolbar > div {
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .btb-booking-calendar__toolbar button,
+  .btb-booking-calendar__toolbar select,
+  .btb-booking-calendar__toolbar label {
+    width: 100%;
+  }
+
+  .btb-booking-calendar__card {
+    padding: 14px;
+  }
+
+  .btb-booking-calendar__quick-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .btb-booking-calendar__quick-actions a,
+  .btb-booking-calendar__card-header a {
+    width: 100%;
+  }
+
+  .btb-booking-calendar__table-wrap {
+    display: none;
   }
 }
 .btb-admin-nav-link {

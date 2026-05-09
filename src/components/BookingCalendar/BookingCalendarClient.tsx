@@ -14,15 +14,18 @@ export type CalendarBooking = {
   supplierId: string
   supplierName: string
   supplierPhone?: string
+  status: 'pending' | 'awaiting payment' | 'confirmed_balance_due' | 'confirmed' | 'cancelled' | string
   startTime: string
   endTime: string
   guests?: number
   totalPrice?: number
   departureLocation?: string
   meetingPointName?: string
+  meetingPointPin?: string
   contactPersonName?: string
   contactPersonNumber?: string
   parkingLocationName?: string
+  parkingLocationPin?: string
   adminUrl: string
 }
 
@@ -119,6 +122,45 @@ const getUniqueSuppliers = (bookings: CalendarBooking[]) => {
     .sort((a, b) => a.name.localeCompare(b.name))
 }
 
+const getStatusLabel = (status?: string) => {
+  switch (status) {
+    case 'pending':
+      return 'Pending'
+    case 'awaiting payment':
+      return 'Awaiting Payment'
+    case 'confirmed_balance_due':
+      return 'Confirmed - Balance Due'
+    case 'confirmed':
+      return 'Confirmed'
+    case 'cancelled':
+      return 'Cancelled'
+    default:
+      return status || 'Unknown'
+  }
+}
+
+const getStatusClass = (status?: string) => {
+  switch (status) {
+    case 'pending':
+      return 'is-pending'
+    case 'awaiting payment':
+      return 'is-awaiting'
+    case 'confirmed_balance_due':
+      return 'is-balance'
+    case 'confirmed':
+      return 'is-confirmed'
+    case 'cancelled':
+      return 'is-cancelled'
+    default:
+      return 'is-default'
+  }
+}
+
+const normalisePhoneForLink = (phone?: string) => {
+  if (!phone) return ''
+  return phone.replace(/[^0-9]/g, '')
+}
+
 const InfoLine = ({ label, value }: { label: string; value?: string | number }) => {
   if (value === undefined || value === null || value === '') return null
 
@@ -167,16 +209,16 @@ export const BookingCalendarClient = ({ bookings }: Props) => {
       <section className="btb-booking-calendar__hero">
         <div>
           <p className="btb-booking-calendar__eyebrow">Operations</p>
-          <h1>Confirmed Booking Calendar</h1>
+          <h1>Booking Operations Calendar</h1>
           <p>
-            Track upcoming confirmed bookings, see which supplier owns each yacht, and open the
-            reservation record when you need to update details.
+            Track upcoming requests, payment-stage bookings and confirmed charters. Open the
+            reservation record when you need to update details on the move.
           </p>
         </div>
 
         <div className="btb-booking-calendar__stats">
           <div>
-            <span>Upcoming confirmed</span>
+            <span>Upcoming bookings</span>
             <strong>{filteredBookings.length}</strong>
           </div>
           <div>
@@ -237,7 +279,7 @@ export const BookingCalendarClient = ({ bookings }: Props) => {
                 <span className="btb-booking-calendar__date-number">{cell.getDate()}</span>
                 {dayBookings.slice(0, 3).map((booking) => (
                   <span key={booking.id} className="btb-booking-calendar__event-pill">
-                    {timeFormatter.format(new Date(booking.startTime))} · {booking.boatName}
+                    {timeFormatter.format(new Date(booking.startTime))} · {booking.boatName} · {getStatusLabel(booking.status)}
                   </span>
                 ))}
                 {dayBookings.length > 3 && (
@@ -259,7 +301,7 @@ export const BookingCalendarClient = ({ bookings }: Props) => {
         </div>
 
         {selectedBookings.length === 0 ? (
-          <div className="btb-booking-calendar__empty">No confirmed bookings on this day.</div>
+          <div className="btb-booking-calendar__empty">No bookings on this day.</div>
         ) : (
           <div className="btb-booking-calendar__cards">
             {selectedBookings.map((booking) => (
@@ -268,11 +310,36 @@ export const BookingCalendarClient = ({ bookings }: Props) => {
                   <div>
                     <h3>{booking.boatName}</h3>
                     <p>{dateTimeFormatter.format(new Date(booking.startTime))} - {timeFormatter.format(new Date(booking.endTime))}</p>
+                    <span className={`btb-booking-calendar__status ${getStatusClass(booking.status)}`}>
+                      {getStatusLabel(booking.status)}
+                    </span>
                   </div>
                   <a href={booking.adminUrl}>Open reservation</a>
                 </div>
 
+                <div className="btb-booking-calendar__quick-actions">
+                  {booking.guestPhone ? (
+                    <>
+                      <a href={`tel:${booking.guestPhone}`}>Call guest</a>
+                      <a href={`https://wa.me/${normalisePhoneForLink(booking.guestPhone)}`} target="_blank" rel="noreferrer">
+                        WhatsApp guest
+                      </a>
+                    </>
+                  ) : null}
+                  {booking.meetingPointPin ? (
+                    <a href={booking.meetingPointPin} target="_blank" rel="noreferrer">
+                      Meeting point
+                    </a>
+                  ) : null}
+                  {booking.parkingLocationPin ? (
+                    <a href={booking.parkingLocationPin} target="_blank" rel="noreferrer">
+                      Parking
+                    </a>
+                  ) : null}
+                </div>
+
                 <div className="btb-booking-calendar__info-grid">
+                  <InfoLine label="Status" value={getStatusLabel(booking.status)} />
                   <InfoLine label="Supplier" value={booking.supplierName} />
                   <InfoLine label="Supplier phone" value={booking.supplierPhone} />
                   <InfoLine label="Guest" value={booking.guestName} />
@@ -295,7 +362,7 @@ export const BookingCalendarClient = ({ bookings }: Props) => {
         <div className="btb-booking-calendar__details-header">
           <div>
             <p className="btb-booking-calendar__eyebrow">Overview</p>
-            <h2>Next confirmed bookings</h2>
+            <h2>Next bookings</h2>
           </div>
         </div>
 
@@ -305,6 +372,7 @@ export const BookingCalendarClient = ({ bookings }: Props) => {
               <tr>
                 <th>Date / Time</th>
                 <th>Boat</th>
+                <th>Status</th>
                 <th>Supplier</th>
                 <th>Guest</th>
                 <th>Guests</th>
@@ -317,6 +385,11 @@ export const BookingCalendarClient = ({ bookings }: Props) => {
                 <tr key={booking.id}>
                   <td>{dateTimeFormatter.format(new Date(booking.startTime))}</td>
                   <td>{booking.boatName}</td>
+                  <td>
+                    <span className={`btb-booking-calendar__status ${getStatusClass(booking.status)}`}>
+                      {getStatusLabel(booking.status)}
+                    </span>
+                  </td>
                   <td>{booking.supplierName}</td>
                   <td>{booking.guestName}</td>
                   <td>{booking.guests || '-'}</td>
