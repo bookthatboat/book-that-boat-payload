@@ -201,7 +201,7 @@ const getCancellationPolicyResult = ({
     cancellationWindow,
     refundPercentage,
     estimatedRefundAmount,
-    canCustomerAddExtras: hoursUntilTrip !== null && hoursUntilTrip > 24,
+    canCustomerAddExtras: hoursUntilTrip !== null && hoursUntilTrip > 36,
   }
 }
 
@@ -5230,7 +5230,7 @@ export const Reservations: CollectionConfig = {
             return Response.json({
               success: true,
               canAddExtras: false,
-              message: 'Extras are locked because the trip is within 24 hours or has already started.',
+              message: 'Extras cannot be added online because the trip is within 36 hours or has already started. Please contact customer support for last-minute extras requests.',
               extras: [],
               booking: getCustomerReservationSummary(reservation),
             })
@@ -5330,7 +5330,7 @@ export const Reservations: CollectionConfig = {
             return Response.json(
               {
                 success: false,
-                message: 'Extras are locked because the trip is within 24 hours or has already started.',
+                message: 'Extras cannot be added online because the trip is within 36 hours or has already started. Please contact customer support for last-minute extras requests.',
               },
               {
                 status: 400,
@@ -5453,7 +5453,7 @@ export const Reservations: CollectionConfig = {
             method: 'Mamo Pay',
             ...feeFields,
             date: new Date().toISOString(),
-            status: 'scheduled',
+            status: 'pending',
             balance: newBalanceDue,
             notes: `Customer added extras from manage booking: ${addedItems
               .map((item) => `${item.name} x ${item.quantity}`)
@@ -5494,7 +5494,7 @@ export const Reservations: CollectionConfig = {
           return Response.json({
             success: true,
             message:
-              'Extras have been added to your booking. Any additional payment due has been added to your payment schedule.',
+              'Extras have been added to your booking. A payment link has been requested for immediate payment so our team can book these extras.',
             addedAmount,
             addedItems,
             booking: getCustomerReservationSummary(updatedReservation),
@@ -6362,7 +6362,7 @@ export const Reservations: CollectionConfig = {
           label: 'Customer Can Add Extras',
           admin: {
             readOnly: true,
-            description: 'Customers can add extras only when the trip is more than 24 hours away.',
+            description: 'Customers can add extras from the manage-booking page only when the trip is more than 36 hours away. Admins can still manage extras manually at any time.',
           },
           hooks: {
             afterRead: [

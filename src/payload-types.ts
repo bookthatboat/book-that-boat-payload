@@ -433,7 +433,7 @@ export interface Reservation {
      */
     estimatedRefundAmount?: number | null;
     /**
-     * Customers can add extras only when the trip is more than 24 hours away.
+     * Customers can add extras from the manage-booking page only when the trip is more than 36 hours away. Admins can still manage extras manually at any time.
      */
     canCustomerAddExtras?: boolean | null;
   };
