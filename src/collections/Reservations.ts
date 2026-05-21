@@ -1232,6 +1232,63 @@ const getMamoChargeNetAmount = (charge: any) => {
   )
 }
 
+const splitMamoGrossAmount = ({
+  grossAmount,
+  fetchedFee,
+  fetchedNetAmount,
+}: {
+  grossAmount: number
+  fetchedFee?: number
+  fetchedNetAmount?: number
+}) => {
+  const safeGrossAmount = Math.max(0, Math.round(Number(grossAmount || 0)))
+  const safeFetchedFee = Math.max(0, Math.round(Number(fetchedFee || 0)))
+  const safeFetchedNetAmount = Math.max(0, Math.round(Number(fetchedNetAmount || 0)))
+
+  if (safeGrossAmount <= 0) {
+    return {
+      baseAmount: 0,
+      feeAmount: 0,
+      customerPayableAmount: 0,
+      netAmount: 0,
+    }
+  }
+
+  if (safeFetchedFee > 0 && safeFetchedFee < safeGrossAmount) {
+    const baseAmount = Math.max(0, safeGrossAmount - safeFetchedFee)
+
+    return {
+      baseAmount,
+      feeAmount: safeFetchedFee,
+      customerPayableAmount: safeGrossAmount,
+      netAmount: safeFetchedNetAmount > 0 ? safeFetchedNetAmount : baseAmount,
+    }
+  }
+
+  if (safeFetchedNetAmount > 0 && safeFetchedNetAmount < safeGrossAmount) {
+    const feeAmount = Math.max(0, safeGrossAmount - safeFetchedNetAmount)
+
+    return {
+      baseAmount: safeFetchedNetAmount,
+      feeAmount,
+      customerPayableAmount: safeGrossAmount,
+      netAmount: safeFetchedNetAmount,
+    }
+  }
+
+  const baseAmount = Math.round(
+    safeGrossAmount / (1 + MAMO_PROCESSING_FEE_PERCENTAGE / 100),
+  )
+  const feeAmount = Math.max(0, safeGrossAmount - baseAmount)
+
+  return {
+    baseAmount,
+    feeAmount,
+    customerPayableAmount: safeGrossAmount,
+    netAmount: baseAmount,
+  }
+}
+
 const getMamoChargeCapturedAt = (charge: any) => {
   return String(
     charge?.captured_at ||
@@ -5013,10 +5070,8 @@ export const Reservations: CollectionConfig = {
             )
           }
 
-          const fetchedAmount = getMamoChargeAmount(mamoCharge)
+          const fetchedGrossAmount = getMamoChargeAmount(mamoCharge)
           const fetchedFee = getMamoChargeFee(mamoCharge)
-          const fallbackFee = Math.round(fetchedAmount * (MAMO_PROCESSING_FEE_PERCENTAGE / 100))
-          const feeAmount = fetchedFee || fallbackFee
           const fetchedNetAmount = getMamoChargeNetAmount(mamoCharge)
           const fetchedPaymentLinkId = getMamoChargePaymentLinkId(mamoCharge)
           const fetchedCapturedAt = getMamoChargeCapturedAt(mamoCharge)
@@ -5024,7 +5079,7 @@ export const Reservations: CollectionConfig = {
           const now = new Date().toISOString()
           const paidAt = toSafeISOString(fetchedCapturedAt, now)
 
-          if (fetchedAmount <= 0) {
+          if (fetchedGrossAmount <= 0) {
             return Response.json(
               {
                 message: `Mamo payment ${paymentId} was found, but no captured amount was returned.`,
@@ -5033,7 +5088,27 @@ export const Reservations: CollectionConfig = {
             )
           }
 
-          let amountRemainingToCover = fetchedAmount
+          const {
+            baseAmount,
+            feeAmount,
+            customerPayableAmount,
+            netAmount,
+          } = splitMamoGrossAmount({
+            grossAmount: fetchedGrossAmount,
+            fetchedFee,
+            fetchedNetAmount,
+          })
+
+          if (baseAmount <= 0) {
+            return Response.json(
+              {
+                message: `Mamo payment ${paymentId} was found, but the base booking amount could not be calculated.`,
+              },
+              { status: 400 },
+            )
+          }
+
+          let amountRemainingToCover = baseAmount
           const supersededIndexes: number[] = []
 
           const updatedPayments = payments.map((payment: any, index: number) => {
@@ -5066,7 +5141,7 @@ export const Reservations: CollectionConfig = {
 
           const manualPaymentRow = {
             kind: 'balance',
-            amount: fetchedAmount,
+            amount: baseAmount,
             method: 'Mamo Pay',
             status: 'completed',
             installmentStage: 'paid',
@@ -5077,16 +5152,15 @@ export const Reservations: CollectionConfig = {
             actualPaymentLinkId: fetchedPaymentLinkId || '',
             actualMamoChargeId: fetchedMamoChargeId,
             actualMamoChargeStatus: fetchedMamoStatus,
-            actualCapturedAmount: fetchedAmount,
+            actualCapturedAmount: customerPayableAmount,
             actualCapturedFeeAmount: feeAmount,
-            actualCapturedNetAmount:
-              fetchedNetAmount > 0 ? fetchedNetAmount : Math.max(0, fetchedAmount - feeAmount),
+            actualCapturedNetAmount: netAmount,
             actualCapturedCurrency: fetchedCurrency,
             actualCapturedAt: paidAt,
 
             processingFeePercentage: MAMO_PROCESSING_FEE_PERCENTAGE,
             processingFeeAmount: feeAmount,
-            customerPayableAmount: fetchedAmount + feeAmount,
+            customerPayableAmount,
 
             reconciledAt: now,
             reconciledBy:
@@ -5099,7 +5173,8 @@ export const Reservations: CollectionConfig = {
             notes: [
               `Manual Mamo payment added by admin from PAY-ID ${fetchedMamoChargeId}.`,
               `Fetched Mamo status: ${fetchedMamoStatus}.`,
-              `Fetched captured amount: ${fetchedCurrency} ${fetchedAmount}.`,
+              `Fetched Mamo gross/customer-paid amount: ${fetchedCurrency} ${customerPayableAmount}.`,
+              `Recorded booking base amount: ${fetchedCurrency} ${baseAmount}.`,
               feeAmount
                 ? `Recorded Mamo fee: ${fetchedCurrency} ${feeAmount}.`
                 : '',
