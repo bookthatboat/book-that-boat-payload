@@ -175,6 +175,29 @@ const getFeeFields = (amount: number, method?: PaymentMethod) => {
   }
 }
 
+const getDefaultPaymentKind = (payments: PaymentRow[], index: number): PaymentKind => {
+  if (payments.length <= 1) return 'full'
+  if (index === 0) return 'downpayment'
+  return 'balance'
+}
+
+const getPaymentMethodForSchedule = (payments: PaymentRow[]) => {
+  const activeRows = payments.filter((payment) =>
+    ['scheduled', 'pending', 'completed'].includes(payment.status || ''),
+  )
+
+  const hasScheduleRows =
+    activeRows.length > 1 ||
+    payments.some((payment) =>
+      payment.status === 'scheduled' ||
+      payment.kind === 'downpayment' ||
+      payment.kind === 'installment' ||
+      payment.kind === 'balance',
+    )
+
+  return hasScheduleRows ? 'scheduled' : 'full'
+}
+
 const normalisePaymentRowsForSave = ({
   payments,
   totalPrice,
@@ -205,7 +228,7 @@ const normalisePaymentRowsForSave = ({
     return {
       ...payment,
       id: payment.id || `payment-${index}`,
-      kind: payment.kind || (paymentPlanValue === 'full' ? 'full' : 'balance'),
+      kind: payment.kind || getDefaultPaymentKind(payments, index),
       amount,
       method,
       status,
@@ -667,6 +690,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
         },
         body: JSON.stringify({
           payments: paymentsToSave,
+          paymentMethod: getPaymentMethodForSchedule(paymentsToSave),
         }),
       })
 
@@ -805,10 +829,10 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
       ...recalculatedPayments,
       {
         id: `payment-${Date.now()}`,
-        kind: paymentPlanValue === 'full' ? 'full' : 'balance',
+        kind: recalculatedPayments.length === 0 ? 'downpayment' : 'balance',
         amount: suggestedAmount,
         method,
-        status: paymentPlanValue === 'full' ? 'pending' : 'scheduled',
+        status: 'scheduled',
         date: defaultScheduleDate,
         createdAt: new Date().toISOString(),
         paidAt: '',
