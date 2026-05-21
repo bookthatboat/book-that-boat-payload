@@ -938,12 +938,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
     const reservationId = getReservationIdFromAdminUrl()
 
     if (!reservationId) {
-      setSaveError('Save the reservation first, then you can reconcile payment rows.')
-      return
-    }
-
-    if (selectedReconcileRows.length === 0) {
-      setSaveError('Select at least one payment row to reconcile.')
+      setSaveError('Save the reservation first, then you can add a manual Mamo payment.')
       return
     }
 
@@ -953,7 +948,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
     }
 
     const confirmed = window.confirm(
-      `Fetch Mamo payment ${actualMamoChargeId.trim()} and mark ${selectedReconcileRows.length} selected row(s) as Received using the fetched amount/status?`,
+      `Fetch Mamo payment ${actualMamoChargeId.trim()} and add it as a Received payment line?`,
     )
 
     if (!confirmed) return
@@ -963,27 +958,22 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
     setSaveError('')
 
     try {
-      const response = await fetch(`/api/reservations/${reservationId}/reconcile-payments`, {
+      const response = await fetch(`/api/reservations/${reservationId}/manual-mamo-payment`, {
         method: 'PATCH',
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          actualPaymentLink,
-          actualPaymentLinkId,
-          actualMamoChargeId,
+          paymentId: actualMamoChargeId,
           notes: reconciliationNotes,
-          allocations: selectedReconcileRows.map((rowIndex) => ({
-            rowIndex,
-          })),
         }),
       })
 
       const json = await response.json().catch(() => null)
 
       if (!response.ok) {
-        throw new Error(json?.message || 'Could not reconcile payment rows.')
+        throw new Error(json?.message || 'Could not add manual Mamo payment.')
       }
 
       const savedPayments = Array.isArray(json?.savedPayments)
@@ -993,7 +983,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
           : null
 
       if (!Array.isArray(savedPayments)) {
-        throw new Error('Reconciliation completed but no saved payment rows were returned.')
+        throw new Error('Manual Mamo payment was added but no saved payment rows were returned.')
       }
 
       setLocalPayments(savedPayments)
@@ -1005,10 +995,10 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
       setReconcileOpen(false)
 
       setSaveMessage(
-        `Payment reconciliation saved. Rows updated: ${json?.updatedIndexes?.length || selectedReconcileRows.length}. Paid total: ${money(toNumber(json?.paidTotal))}.`,
+        `Manual Mamo payment added. Paid total: ${money(toNumber(json?.paidTotal))}. Superseded old rows: ${json?.supersededIndexes?.length || 0}.`,
       )
     } catch (error) {
-      setSaveError(error instanceof Error ? error.message : 'Could not reconcile payment rows.')
+      setSaveError(error instanceof Error ? error.message : 'Could not add manual Mamo payment.')
     } finally {
       setIsReconciling(false)
     }
@@ -1085,7 +1075,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
           onClick={() => setReconcileOpen((open) => !open)}
           style={styles.button}
         >
-          Reconcile received payment
+          Add manual Mamo payment
         </button>
         <button
           type="button"
@@ -1115,33 +1105,13 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
 
       {reconcileOpen && (
         <div style={styles.reconcilePanel}>
-          <h4 style={{ margin: '0 0 8px' }}>Reconcile received payment</h4>
+          <h4 style={{ margin: '0 0 8px' }}>Add manual Mamo payment</h4>
           <p style={styles.help}>
-            Use this when the customer paid using a different Mamo link, the same link was paid more than once,
-            or you need to manually match real received money to payment schedule rows.
+            Use this when a customer has paid in Mamo and you need to record the received payment against this booking.
+            Enter one unique PAY-ID. The system fetches the real amount, fee and status from Mamo, then adds a new Received payment line automatically.
           </p>
 
-          <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', marginTop: 12 }}>
-            <label>
-              <div style={styles.label}>Actual Mamo Link ID / Reference</div>
-              <input
-                value={actualPaymentLinkId}
-                onChange={(event) => setActualPaymentLinkId(event.target.value)}
-                placeholder="e.g. MB-LINK-..."
-                style={styles.input}
-              />
-            </label>
-
-            <label>
-              <div style={styles.label}>Actual Mamo Link URL</div>
-              <input
-                value={actualPaymentLink}
-                onChange={(event) => setActualPaymentLink(event.target.value)}
-                placeholder="Paste payment link URL"
-                style={styles.input}
-              />
-            </label>
-
+          <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', marginTop: 12 }}>
             <label>
               <div style={styles.label}>Mamo PAY-ID / Payment Reference *</div>
               <input
@@ -1151,13 +1121,13 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
                 style={styles.input}
               />
               <div style={styles.help}>
-                Required. This must be unique. The system fetches the real amount, status and fee from Mamo.
+                Required. Enter the unique payment ID from Mamo. The system fetches the real amount, status and fee from Mamo.
               </div>
             </label>
           </div>
 
           <label style={{ display: 'block', marginTop: 12 }}>
-            <div style={styles.label}>Reconciliation Notes</div>
+            <div style={styles.label}>Admin Notes</div>
             <textarea
               value={reconciliationNotes}
               onChange={(event) => setReconciliationNotes(event.target.value)}
@@ -1169,49 +1139,18 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
             />
           </label>
 
-          <div style={{ marginTop: 12 }}>
-            <div style={styles.label}>Select rows to mark as Received</div>
-            <div style={{ display: 'grid', gap: 8 }}>
-              {recalculatedPayments.map((payment, index) => (
-                <label
-                  key={payment.id || index}
-                  style={{
-                    display: 'flex',
-                    gap: 8,
-                    alignItems: 'center',
-                    padding: 8,
-                    border: '1px solid var(--theme-elevation-150)',
-                    borderRadius: 6,
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedReconcileRows.includes(index)}
-                    onChange={() => toggleReconcileRow(index)}
-                    disabled={payment.status === 'completed'}
-                  />
-                  <span>
-                    Row {index + 1}: {money(toNumber(payment.amount))} · {getPaymentStatusLabel(payment.status)} · {payment.method || 'Mamo Pay'}
-                    {payment.paymentLinkId ? ` · generated link: ${payment.paymentLinkId}` : ''}
-                    {payment.actualPaymentLinkId ? ` · actual link: ${payment.actualPaymentLinkId}` : ''}
-                  </span>
-                </label>
-              ))}
-            </div>
-          </div>
-
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
             <button
               type="button"
               onClick={reconcileSelectedPayments}
-              disabled={isReconciling || selectedReconcileRows.length === 0}
+              disabled={isReconciling || !actualMamoChargeId.trim()}
               style={{
                 ...styles.button,
-                opacity: isReconciling || selectedReconcileRows.length === 0 ? 0.6 : 1,
-                cursor: isReconciling || selectedReconcileRows.length === 0 ? 'not-allowed' : 'pointer',
+                opacity: isReconciling || !actualMamoChargeId.trim() ? 0.6 : 1,
+                cursor: isReconciling || !actualMamoChargeId.trim() ? 'not-allowed' : 'pointer',
               }}
             >
-              {isReconciling ? 'Fetching from Mamo...' : 'Fetch PAY-ID and mark selected row as Received'}
+              {isReconciling ? 'Fetching from Mamo...' : 'Fetch PAY-ID and add received payment'}
             </button>
 
             <button

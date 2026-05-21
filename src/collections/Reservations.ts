@@ -1150,6 +1150,18 @@ const checkMamoPaymentStatus = async (paymentLinkId: string): Promise<boolean> =
 }
 
 
+const toSafeISOString = (value: unknown, fallback = new Date().toISOString()) => {
+  if (!value) return fallback
+
+  const date = new Date(String(value))
+
+  if (Number.isNaN(date.getTime())) {
+    return fallback
+  }
+
+  return date.toISOString()
+}
+
 const normaliseMamoMoneyValue = (value: unknown) => {
   if (value === undefined || value === null || value === '') return 0
 
@@ -4927,6 +4939,240 @@ export const Reservations: CollectionConfig = {
     },
 
     {
+      path: '/:id/manual-mamo-payment',
+      method: 'patch',
+      handler: async (req) => {
+        const routeParams = (req as any).routeParams || {}
+        const id = Array.isArray(routeParams.id) ? routeParams.id[0] : routeParams.id
+
+        try {
+          if (!req.user) {
+            return Response.json({ message: 'Unauthorized.' }, { status: 401 })
+          }
+
+          if (!id) {
+            return Response.json({ message: 'Missing reservation ID.' }, { status: 400 })
+          }
+
+          const body =
+            typeof req.json === 'function'
+              ? await req.json().catch(() => null)
+              : ((req as any).data || (req as any).body || null)
+
+          const paymentId = String(body?.paymentId || body?.actualMamoChargeId || '').trim()
+          const notes = String(body?.notes || '').trim()
+
+          if (!paymentId) {
+            return Response.json(
+              {
+                message:
+                  'Enter the unique Mamo PAY-ID / payment reference. The system will fetch the amount and status from Mamo.',
+              },
+              { status: 400 },
+            )
+          }
+
+          const reservation = await req.payload.findByID({
+            collection: 'reservations',
+            id,
+            depth: 0,
+            overrideAccess: true,
+          })
+
+          const payments = Array.isArray((reservation as any).payments)
+            ? [...(reservation as any).payments]
+            : []
+
+          await assertMamoPaymentIdNotAlreadyReconciled({
+            payload: req.payload,
+            paymentId,
+            reservationId: id,
+          })
+
+          const mamoCharge = await getMamoChargeByPaymentId(paymentId)
+
+          if (!mamoCharge) {
+            return Response.json(
+              {
+                message: `Could not find Mamo payment ${paymentId}. Check the PAY-ID and try again.`,
+              },
+              { status: 404 },
+            )
+          }
+
+          const fetchedMamoChargeId = getMamoChargeId(mamoCharge) || paymentId
+          const fetchedMamoStatus = getMamoChargeStatus(mamoCharge)
+          const fetchedMamoStatusLower = fetchedMamoStatus.toLowerCase()
+
+          if (!['captured', 'paid', 'success', 'successful', 'completed'].includes(fetchedMamoStatusLower)) {
+            return Response.json(
+              {
+                message: `Mamo payment ${paymentId} is not captured/paid yet. Current status: ${fetchedMamoStatus || 'unknown'}.`,
+              },
+              { status: 400 },
+            )
+          }
+
+          const fetchedAmount = getMamoChargeAmount(mamoCharge)
+          const fetchedFee = getMamoChargeFee(mamoCharge)
+          const fallbackFee = Math.round(fetchedAmount * (MAMO_PROCESSING_FEE_PERCENTAGE / 100))
+          const feeAmount = fetchedFee || fallbackFee
+          const fetchedNetAmount = getMamoChargeNetAmount(mamoCharge)
+          const fetchedPaymentLinkId = getMamoChargePaymentLinkId(mamoCharge)
+          const fetchedCapturedAt = getMamoChargeCapturedAt(mamoCharge)
+          const fetchedCurrency = String(mamoCharge?.currency || mamoCharge?.currency_code || 'AED').trim()
+          const now = new Date().toISOString()
+          const paidAt = toSafeISOString(fetchedCapturedAt, now)
+
+          if (fetchedAmount <= 0) {
+            return Response.json(
+              {
+                message: `Mamo payment ${paymentId} was found, but no captured amount was returned.`,
+              },
+              { status: 400 },
+            )
+          }
+
+          let amountRemainingToCover = fetchedAmount
+          const supersededIndexes: number[] = []
+
+          const updatedPayments = payments.map((payment: any, index: number) => {
+            const status = String(payment?.status || '')
+            const amount = Math.max(0, Math.round(Number(payment?.amount || 0)))
+
+            const canSupersede =
+              amountRemainingToCover > 0 &&
+              amount > 0 &&
+              ['scheduled', 'pending'].includes(status)
+
+            if (!canSupersede || amount > amountRemainingToCover) {
+              return payment
+            }
+
+            amountRemainingToCover -= amount
+            supersededIndexes.push(index)
+
+            return {
+              ...payment,
+              status: 'superseded',
+              notes: [
+                payment?.notes || '',
+                `Superseded by manual Mamo payment ${fetchedMamoChargeId} received on ${paidAt}.`,
+              ]
+                .filter(Boolean)
+                .join('\n'),
+            }
+          })
+
+          const manualPaymentRow = {
+            kind: 'balance',
+            amount: fetchedAmount,
+            method: 'Mamo Pay',
+            status: 'completed',
+            installmentStage: 'paid',
+            paidAt,
+            dueDate: paidAt,
+
+            paymentLinkId: fetchedPaymentLinkId || '',
+            actualPaymentLinkId: fetchedPaymentLinkId || '',
+            actualMamoChargeId: fetchedMamoChargeId,
+            actualMamoChargeStatus: fetchedMamoStatus,
+            actualCapturedAmount: fetchedAmount,
+            actualCapturedFeeAmount: feeAmount,
+            actualCapturedNetAmount:
+              fetchedNetAmount > 0 ? fetchedNetAmount : Math.max(0, fetchedAmount - feeAmount),
+            actualCapturedCurrency: fetchedCurrency,
+            actualCapturedAt: paidAt,
+
+            processingFeePercentage: MAMO_PROCESSING_FEE_PERCENTAGE,
+            processingFeeAmount: feeAmount,
+            customerPayableAmount: fetchedAmount + feeAmount,
+
+            reconciledAt: now,
+            reconciledBy:
+              typeof req.user === 'object' && req.user
+                ? String((req.user as any).id || (req.user as any).email || 'admin')
+                : 'admin',
+            reconciliationSource: 'manual_admin',
+            reconciliationNotes: notes,
+
+            notes: [
+              `Manual Mamo payment added by admin from PAY-ID ${fetchedMamoChargeId}.`,
+              `Fetched Mamo status: ${fetchedMamoStatus}.`,
+              `Fetched captured amount: ${fetchedCurrency} ${fetchedAmount}.`,
+              feeAmount
+                ? `Recorded Mamo fee: ${fetchedCurrency} ${feeAmount}.`
+                : '',
+              notes,
+            ]
+              .filter(Boolean)
+              .join('\n'),
+          }
+
+          updatedPayments.push(manualPaymentRow)
+
+          const totalPrice = Math.max(0, Math.round(Number((reservation as any).totalPrice || 0)))
+
+          const paidTotal = updatedPayments.reduce((sum: number, payment: any) => {
+            if (payment?.status !== 'completed') return sum
+            return sum + Math.max(0, Math.round(Number(payment?.amount || 0)))
+          }, 0)
+
+          const nextStatus =
+            totalPrice > 0 && Math.round(paidTotal) >= Math.round(totalPrice)
+              ? 'confirmed'
+              : 'confirmed_balance_due'
+
+          const updatedDoc = await req.payload.update({
+            collection: 'reservations',
+            id,
+            data: {
+              payments: updatedPayments,
+              status: nextStatus,
+              paymentMethod: getPaymentMethodForSchedule(updatedPayments),
+              paymentsUpdateSource: 'payment-manager',
+            } as any,
+            overrideAccess: true,
+            context: {
+              paymentsUpdateSource: 'payment-manager',
+              skipPaymentReconciliation: true,
+              skipBalancePaymentLink: true,
+            },
+          })
+
+          const savedPayments = Array.isArray((updatedDoc as any).payments)
+            ? (updatedDoc as any).payments
+            : updatedPayments
+
+          return Response.json({
+            doc: updatedDoc,
+            savedPayments,
+            addedPayment: manualPaymentRow,
+            supersededIndexes,
+            paidTotal,
+            totalPrice,
+            status: nextStatus,
+            mamoCharge,
+          })
+        } catch (error) {
+          console.error('[manual-mamo-payment] failed', {
+            reservationId: id,
+            error,
+          })
+
+          return Response.json(
+            {
+              message:
+                error instanceof Error
+                  ? error.message
+                  : 'Could not add manual Mamo payment.',
+            },
+            { status: 500 },
+          )
+        }
+      },
+    },
+    {
       path: '/:id/reconcile-payments',
       method: 'patch',
       handler: async (req) => {
@@ -5067,7 +5313,7 @@ export const Reservations: CollectionConfig = {
               paymentRowId: existingPayment?.id,
             })
 
-            const paidAt = fetchedCapturedAt ? new Date(fetchedCapturedAt).toISOString() : now
+            const paidAt = toSafeISOString(fetchedCapturedAt, now)
 
             const rowActualPaymentLink = String(
               allocation?.actualPaymentLink ||
