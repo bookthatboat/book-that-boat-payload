@@ -5681,6 +5681,7 @@ export const Reservations: CollectionConfig = {
                       collection: 'locations',
                       id: locationId,
                       depth: 0,
+                      overrideAccess: true,
                     })
 
                     const label =
