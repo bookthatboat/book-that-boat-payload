@@ -35,6 +35,9 @@ type PaymentRow = {
   actualMamoChargeId?: string
   actualMamoChargeStatus?: string
   actualCapturedAmount?: number
+  actualCapturedFeeAmount?: number
+  actualCapturedNetAmount?: number
+  actualCapturedCurrency?: string
   actualCapturedAt?: string
   reconciledAt?: string
   reconciledBy?: string
@@ -944,8 +947,13 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
       return
     }
 
+    if (!actualMamoChargeId.trim()) {
+      setSaveError('Enter the unique Mamo PAY-ID / payment reference first. The system will fetch amount and status from Mamo.')
+      return
+    }
+
     const confirmed = window.confirm(
-      `Mark ${selectedReconcileRows.length} selected payment row(s) as Received using the actual payment details entered?`,
+      `Fetch Mamo payment ${actualMamoChargeId.trim()} and mark ${selectedReconcileRows.length} selected row(s) as Received using the fetched amount/status?`,
     )
 
     if (!confirmed) return
@@ -968,7 +976,6 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
           notes: reconciliationNotes,
           allocations: selectedReconcileRows.map((rowIndex) => ({
             rowIndex,
-            amount: recalculatedPayments[rowIndex]?.amount || 0,
           })),
         }),
       })
@@ -1136,13 +1143,16 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
             </label>
 
             <label>
-              <div style={styles.label}>Mamo Charge / Payment Reference</div>
+              <div style={styles.label}>Mamo PAY-ID / Payment Reference *</div>
               <input
                 value={actualMamoChargeId}
                 onChange={(event) => setActualMamoChargeId(event.target.value)}
-                placeholder="Optional charge/payment ID"
+                placeholder="e.g. PAY-A8D8B99E63"
                 style={styles.input}
               />
+              <div style={styles.help}>
+                Required. This must be unique. The system fetches the real amount, status and fee from Mamo.
+              </div>
             </label>
           </div>
 
@@ -1201,7 +1211,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
                 cursor: isReconciling || selectedReconcileRows.length === 0 ? 'not-allowed' : 'pointer',
               }}
             >
-              {isReconciling ? 'Reconciling...' : 'Mark selected rows as Received'}
+              {isReconciling ? 'Fetching from Mamo...' : 'Fetch PAY-ID and mark selected row as Received'}
             </button>
 
             <button

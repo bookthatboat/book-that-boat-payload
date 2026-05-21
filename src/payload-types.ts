@@ -524,6 +524,9 @@ export interface Reservation {
         actualMamoChargeId?: string | null;
         actualMamoChargeStatus?: string | null;
         actualCapturedAmount?: number | null;
+        actualCapturedFeeAmount?: number | null;
+        actualCapturedNetAmount?: number | null;
+        actualCapturedCurrency?: string | null;
         actualCapturedAt?: string | null;
         reconciledAt?: string | null;
         reconciledBy?: string | null;
@@ -2695,6 +2698,9 @@ export interface ReservationsSelect<T extends boolean = true> {
         actualMamoChargeId?: T;
         actualMamoChargeStatus?: T;
         actualCapturedAmount?: T;
+        actualCapturedFeeAmount?: T;
+        actualCapturedNetAmount?: T;
+        actualCapturedCurrency?: T;
         actualCapturedAt?: T;
         reconciledAt?: T;
         reconciledBy?: T;
