@@ -5648,6 +5648,7 @@ export const Reservations: CollectionConfig = {
                   collection: 'boats',
                   id: boatId,
                   depth: 2,
+                  overrideAccess: true,
                 })
                 boatPrice = boat.price
                 boatPriceDay = boat.priceDay
@@ -5936,6 +5937,7 @@ export const Reservations: CollectionConfig = {
             collection: 'boats',
             id: boatId,
             depth: 2,
+            overrideAccess: true,
           })) as unknown as Boat
 
           const user = {

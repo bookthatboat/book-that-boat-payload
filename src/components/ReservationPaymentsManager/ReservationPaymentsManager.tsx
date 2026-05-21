@@ -379,8 +379,12 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
     path,
   })
 
-  const totalPrice = Math.max(0, Math.round(toNumber(totalPriceValue)))
   const reservationIdForState = getReservationIdFromAdminUrl()
+  const [liveTotalPrice, setLiveTotalPrice] = useState(() =>
+    Math.max(0, Math.round(toNumber(totalPriceValue))),
+  )
+
+  const totalPrice = liveTotalPrice
 
   const [localPayments, setLocalPayments] = useState<PaymentRow[]>(() => {
     if (reservationIdForState) {
@@ -398,6 +402,33 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
   useEffect(() => {
     latestPaymentsRef.current = localPayments
   }, [localPayments])
+
+  useEffect(() => {
+    setLiveTotalPrice(Math.max(0, Math.round(toNumber(totalPriceValue))))
+  }, [totalPriceValue])
+
+  useEffect(() => {
+    const handleTotalUpdated = (event: Event) => {
+      const customEvent = event as CustomEvent<{ reservationId?: string; totalPrice?: number }>
+
+      if (
+        reservationIdForState &&
+        customEvent.detail?.reservationId &&
+        customEvent.detail.reservationId !== reservationIdForState
+      ) {
+        return
+      }
+
+      const nextTotal = Math.max(0, Math.round(toNumber(customEvent.detail?.totalPrice)))
+      setLiveTotalPrice(nextTotal)
+    }
+
+    window.addEventListener('reservation-total-updated', handleTotalUpdated)
+
+    return () => {
+      window.removeEventListener('reservation-total-updated', handleTotalUpdated)
+    }
+  }, [reservationIdForState])
 
   const paymentsValueKey = useMemo(() => {
     if (!Array.isArray(paymentsValue)) return '[]'
