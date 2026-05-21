@@ -254,40 +254,54 @@ export function BoatExtrasManager() {
   }, [boatId, filteredExtras])
 
   const patchExtraBoatIds = async (extra: ExtraDoc, nextBoatIds: string[]) => {
-    const response = await fetch(`/api/extras/${extra.id}`, {
-      method: 'PATCH',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        boat: nextBoatIds,
-      }),
-    })
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), 15000)
 
-    const json = await response.json().catch(() => null)
+    try {
+      const response = await fetch(`/api/extras/${extra.id}/boat-assignment`, {
+        method: 'PATCH',
+        credentials: 'include',
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          boatIds: nextBoatIds,
+        }),
+      })
 
-    if (!response.ok) {
-      const responseMessage =
-        json?.errors?.[0]?.message ||
-        json?.message ||
-        `Could not update ${extra.name || 'extra'}`
+      const json = await response.json().catch(() => null)
 
-      throw new Error(responseMessage)
+      if (!response.ok) {
+        const responseMessage =
+          json?.errors?.[0]?.message ||
+          json?.message ||
+          `Could not update ${extra.name || 'extra'}`
+
+        throw new Error(responseMessage)
+      }
+
+      const doc = json?.doc || json
+
+      setExtras((previousExtras) =>
+        previousExtras.map((item) =>
+          item.id === extra.id
+            ? {
+                ...item,
+                boat: doc?.boat || nextBoatIds,
+              }
+            : item,
+        ),
+      )
+    } catch (saveError) {
+      if (saveError instanceof DOMException && saveError.name === 'AbortError') {
+        throw new Error(`Timed out while updating ${extra.name || 'extra'}. Please try again.`)
+      }
+
+      throw saveError
+    } finally {
+      window.clearTimeout(timeout)
     }
-
-    const doc = json?.doc || json
-
-    setExtras((previousExtras) =>
-      previousExtras.map((item) =>
-        item.id === extra.id
-          ? {
-              ...item,
-              boat: doc?.boat || nextBoatIds,
-            }
-          : item,
-      ),
-    )
   }
 
   const addExtraToBoat = async (extra: ExtraDoc) => {
