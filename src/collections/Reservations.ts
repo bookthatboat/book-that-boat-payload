@@ -2941,7 +2941,19 @@ const validateReservationPaymentSchedule = ({
     const activeRows = payments.filter(isPaymentActiveForSchedule)
 
     if (activeRows.length > 1) {
-      throw new Error('Payment Plan is Pay in Full, so only one active payment row is allowed.')
+      // Payment Schedule Manager is now the source of truth for reservation payments.
+      // Older reservations can still have paymentMethod='full' while carrying multiple
+      // active rows, especially after manual payment rows, balance rows, or migrated data.
+      //
+      // Do not block normal admin/status saves for this mismatch. Blocking here causes
+      // Payload Admin to fail with a generic 500/"Something went wrong" when changing status.
+      console.warn(
+        '[reservation payment schedule] Pay in Full reservation has multiple active payment rows; allowing save because payment schedule is source of truth.',
+        {
+          activeRows: activeRows.length,
+          reservationId: data?.id || originalDoc?.id,
+        },
+      )
     }
   }
 }
