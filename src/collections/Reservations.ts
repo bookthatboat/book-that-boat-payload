@@ -1150,6 +1150,170 @@ const checkMamoPaymentStatus = async (paymentLinkId: string): Promise<boolean> =
 }
 
 
+const normaliseMamoMoneyValue = (value: unknown) => {
+  if (value === undefined || value === null || value === '') return 0
+
+  const numericValue = Number(value)
+
+  if (!Number.isFinite(numericValue)) return 0
+
+  return Math.max(0, Math.round(numericValue))
+}
+
+const getMamoChargeId = (charge: any) => {
+  return String(
+    charge?.id ||
+      charge?.charge_id ||
+      charge?.payment_id ||
+      charge?.paymentId ||
+      charge?.transaction_id ||
+      charge?.transactionId ||
+      charge?.reference ||
+      '',
+  ).trim()
+}
+
+const getMamoChargePaymentLinkId = (charge: any) => {
+  return String(
+    charge?.payment_link_id ||
+      charge?.paymentLinkId ||
+      charge?.payment_link?.id ||
+      charge?.paymentLink?.id ||
+      charge?.payment_link_reference ||
+      '',
+  ).trim()
+}
+
+const getMamoChargeAmount = (charge: any) => {
+  return normaliseMamoMoneyValue(
+    charge?.amount ??
+      charge?.captured_amount ??
+      charge?.capturedAmount ??
+      charge?.paid_amount ??
+      charge?.paidAmount ??
+      charge?.total_amount ??
+      charge?.totalAmount,
+  )
+}
+
+const getMamoChargeFee = (charge: any) => {
+  return normaliseMamoMoneyValue(
+    charge?.fee ??
+      charge?.fees ??
+      charge?.processing_fee ??
+      charge?.processingFee ??
+      charge?.mamo_fee ??
+      charge?.mamoFee ??
+      charge?.merchant_fee ??
+      charge?.merchantFee,
+  )
+}
+
+const getMamoChargeNetAmount = (charge: any) => {
+  return normaliseMamoMoneyValue(
+    charge?.net_amount ??
+      charge?.netAmount ??
+      charge?.settlement_amount ??
+      charge?.settlementAmount ??
+      charge?.amount_after_fees ??
+      charge?.amountAfterFees,
+  )
+}
+
+const getMamoChargeCapturedAt = (charge: any) => {
+  return String(
+    charge?.captured_at ||
+      charge?.capturedAt ||
+      charge?.created_date ||
+      charge?.createdDate ||
+      charge?.created_at ||
+      charge?.createdAt ||
+      '',
+  ).trim()
+}
+
+const getMamoChargeStatus = (charge: any) => {
+  return String(charge?.status || charge?.payment_status || charge?.paymentStatus || '').trim()
+}
+
+const fetchMamoChargesPage = async (page: number) => {
+  if (!MAMOPAY_CONFIG.apiKey) {
+    console.warn('[MamoPay] API key missing. Cannot fetch transactions.')
+    return null
+  }
+
+  const response = await fetch(
+    `${process.env.MAMOPAY_BASE_URL || MAMOPAY_CONFIG.baseUrl}/manage_api/v1/charges?page=${page}&per_page=50`,
+    {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${MAMOPAY_CONFIG.apiKey}`,
+        accept: 'application/json',
+      },
+    },
+  )
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '')
+    console.error('[MamoPay] Failed to fetch transactions', {
+      page,
+      status: response.status,
+      statusText: response.statusText,
+      body,
+    })
+
+    throw new Error(`Mamo transaction fetch failed with status ${response.status}.`)
+  }
+
+  return response.json().catch(() => null)
+}
+
+const getMamoChargeByPaymentId = async (paymentId: string): Promise<any | null> => {
+  const trimmedPaymentId = String(paymentId || '').trim()
+
+  if (!trimmedPaymentId) return null
+  if (isMockLinkId(trimmedPaymentId)) return null
+
+  const maxPages = 10
+  let page = 1
+
+  while (page <= maxPages) {
+    const data = await fetchMamoChargesPage(page)
+
+    const charges = Array.isArray(data?.data)
+      ? data.data
+      : Array.isArray(data?.charges)
+        ? data.charges
+        : Array.isArray(data)
+          ? data
+          : []
+
+    const matchedCharge = charges.find((charge: any) => {
+      const chargeId = getMamoChargeId(charge)
+      return chargeId.toLowerCase() === trimmedPaymentId.toLowerCase()
+    })
+
+    if (matchedCharge) return matchedCharge
+
+    const nextPage =
+      data?.pagination_meta?.next_page ||
+      data?.pagination?.next_page ||
+      data?.meta?.next_page ||
+      null
+
+    if (!nextPage) break
+
+    const numericNextPage = Number(nextPage)
+
+    if (!Number.isFinite(numericNextPage) || numericNextPage <= page) break
+
+    page = numericNextPage
+  }
+
+  return null
+}
+
 const getMamoCapturedChargesForLink = async (paymentLinkId: string): Promise<any[]> => {
   if (!paymentLinkId) return []
 
@@ -1157,63 +1321,46 @@ const getMamoCapturedChargesForLink = async (paymentLinkId: string): Promise<any
 
   if (!trimmedId || isMockLinkId(trimmedId)) return []
 
-  if (!MAMOPAY_CONFIG.apiKey) {
-    console.warn('[MamoPay] API key missing. Cannot fetch captured charges.')
-    return []
-  }
-
   const capturedCharges: any[] = []
+  const maxPages = 10
+  let page = 1
 
-  try {
-    const encoded = encodeURIComponent(trimmedId)
-    const response = await fetch(
-      `${process.env.MAMOPAY_BASE_URL || MAMOPAY_CONFIG.baseUrl}/manage_api/v1/charges?payment_link_id=${encoded}`,
-      {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${MAMOPAY_CONFIG.apiKey}`,
-          accept: 'application/json',
-        },
-      },
-    )
+  while (page <= maxPages) {
+    const data = await fetchMamoChargesPage(page)
 
-    if (!response.ok) {
-      const body = await response.text().catch(() => '')
-      console.error('[MamoPay] Failed to fetch captured charges', {
-        paymentLinkId: trimmedId,
-        status: response.status,
-        statusText: response.statusText,
-        body,
-      })
-      return []
-    }
-
-    const data = await response.json().catch(() => null)
     const charges = Array.isArray(data?.data)
       ? data.data
-      : Array.isArray(data)
-        ? data
-        : []
+      : Array.isArray(data?.charges)
+        ? data.charges
+        : Array.isArray(data)
+          ? data
+          : []
 
     for (const charge of charges) {
-      const status = String(charge?.status || '').toLowerCase()
-      const chargeLinkId = String(charge?.payment_link_id || charge?.paymentLinkId || '').trim()
+      const status = getMamoChargeStatus(charge).toLowerCase()
+      const chargeLinkId = getMamoChargePaymentLinkId(charge)
 
-      if (status === 'captured' && (!chargeLinkId || chargeLinkId === trimmedId)) {
+      if (status === 'captured' && chargeLinkId === trimmedId) {
         capturedCharges.push(charge)
       }
     }
 
-    return capturedCharges
-  } catch (error) {
-    console.error('[MamoPay] Error fetching captured charges', {
-      paymentLinkId: trimmedId,
-      error,
-    })
+    const nextPage =
+      data?.pagination_meta?.next_page ||
+      data?.pagination?.next_page ||
+      data?.meta?.next_page ||
+      null
 
-    return []
+    if (!nextPage) break
+
+    const numericNextPage = Number(nextPage)
+
+    if (!Number.isFinite(numericNextPage) || numericNextPage <= page) break
+
+    page = numericNextPage
   }
+
+  return capturedCharges
 }
 
 const cleanupProcessedReservations = () => {
@@ -4663,6 +4810,54 @@ const getCustomerExtrasSummary = (extras: any[]) => {
 }
 
 
+const assertMamoPaymentIdNotAlreadyReconciled = async ({
+  payload,
+  paymentId,
+  reservationId,
+  paymentRowId,
+}: {
+  payload: any
+  paymentId: string
+  reservationId: string
+  paymentRowId?: string
+}) => {
+  const trimmedPaymentId = String(paymentId || '').trim()
+
+  if (!trimmedPaymentId) return
+
+  const existingReservations = await payload.find({
+    collection: 'reservations',
+    where: {
+      'payments.actualMamoChargeId': {
+        equals: trimmedPaymentId,
+      },
+    },
+    depth: 0,
+    limit: 10,
+    overrideAccess: true,
+  })
+
+  const docs = Array.isArray(existingReservations?.docs) ? existingReservations.docs : []
+
+  for (const doc of docs) {
+    const payments = Array.isArray((doc as any).payments) ? (doc as any).payments : []
+
+    for (const payment of payments) {
+      if (String(payment?.actualMamoChargeId || '').trim() !== trimmedPaymentId) continue
+
+      const sameReservation = String((doc as any).id || '') === String(reservationId || '')
+      const samePaymentRow =
+        paymentRowId && String(payment?.id || '') === String(paymentRowId || '')
+
+      if (!sameReservation || !samePaymentRow) {
+        throw new Error(
+          `Mamo PAY-ID ${trimmedPaymentId} is already reconciled against another payment row. A Mamo PAY-ID can only be used once.`,
+        )
+      }
+    }
+  }
+}
+
 export const Reservations: CollectionConfig = {
   slug: 'reservations',
   endpoints: [
@@ -4730,6 +4925,7 @@ export const Reservations: CollectionConfig = {
         }
       },
     },
+
     {
       path: '/:id/reconcile-payments',
       method: 'patch',
@@ -4786,14 +4982,57 @@ export const Reservations: CollectionConfig = {
           const actualPaymentLinkId = String(body?.actualPaymentLinkId || '').trim()
           const actualMamoChargeId = String(body?.actualMamoChargeId || '').trim()
 
-          let capturedCharges: any[] = []
-          if (actualPaymentLinkId) {
-            capturedCharges = await getMamoCapturedChargesForLink(actualPaymentLinkId)
+          if (!actualMamoChargeId) {
+            return Response.json(
+              {
+                message:
+                  'Enter the unique Mamo PAY-ID / payment reference before reconciling. The system will fetch the real amount and status from Mamo.',
+              },
+              { status: 400 },
+            )
           }
 
-          const capturedTotal = capturedCharges.reduce((sum, charge) => {
-            return sum + Math.max(0, Math.round(Number(charge?.amount || charge?.amount_cents || 0)))
-          }, 0)
+          const mamoCharge = await getMamoChargeByPaymentId(actualMamoChargeId)
+
+          if (!mamoCharge) {
+            return Response.json(
+              {
+                message: `Could not find Mamo payment ${actualMamoChargeId}. Check the PAY-ID and try again.`,
+              },
+              { status: 404 },
+            )
+          }
+
+          const fetchedMamoChargeId = getMamoChargeId(mamoCharge) || actualMamoChargeId
+          const fetchedMamoStatus = getMamoChargeStatus(mamoCharge)
+          const fetchedMamoStatusLower = fetchedMamoStatus.toLowerCase()
+
+          if (!['captured', 'paid', 'success', 'successful', 'completed'].includes(fetchedMamoStatusLower)) {
+            return Response.json(
+              {
+                message: `Mamo payment ${actualMamoChargeId} is not captured/paid yet. Current status: ${fetchedMamoStatus || 'unknown'}.`,
+              },
+              { status: 400 },
+            )
+          }
+
+          const fetchedAmount = getMamoChargeAmount(mamoCharge)
+          const fetchedFee = getMamoChargeFee(mamoCharge)
+          const fetchedNetAmount = getMamoChargeNetAmount(mamoCharge)
+          const fetchedPaymentLinkId = getMamoChargePaymentLinkId(mamoCharge)
+          const fetchedCapturedAt = getMamoChargeCapturedAt(mamoCharge)
+          const fetchedCurrency = String(mamoCharge?.currency || mamoCharge?.currency_code || 'AED').trim()
+
+          if (fetchedAmount <= 0) {
+            return Response.json(
+              {
+                message: `Mamo payment ${actualMamoChargeId} was found, but no captured amount was returned.`,
+              },
+              { status: 400 },
+            )
+          }
+
+          const capturedTotal = fetchedAmount
 
           const updatedIndexes: number[] = []
 
@@ -4819,15 +5058,16 @@ export const Reservations: CollectionConfig = {
             }
 
             const existingPayment = payments[index]
+            const rowActualMamoChargeId = fetchedMamoChargeId
 
-            const amount =
-              allocation?.amount !== undefined && allocation?.amount !== null
-                ? Math.max(0, Math.round(Number(allocation.amount || 0)))
-                : Math.max(0, Math.round(Number(existingPayment?.amount || 0)))
+            await assertMamoPaymentIdNotAlreadyReconciled({
+              payload: req.payload,
+              paymentId: rowActualMamoChargeId,
+              reservationId: id,
+              paymentRowId: existingPayment?.id,
+            })
 
-            const paidAt = allocation?.paidAt
-              ? new Date(allocation.paidAt).toISOString()
-              : now
+            const paidAt = fetchedCapturedAt ? new Date(fetchedCapturedAt).toISOString() : now
 
             const rowActualPaymentLink = String(
               allocation?.actualPaymentLink ||
@@ -4840,40 +5080,39 @@ export const Reservations: CollectionConfig = {
             const rowActualPaymentLinkId = String(
               allocation?.actualPaymentLinkId ||
                 actualPaymentLinkId ||
+                fetchedPaymentLinkId ||
                 existingPayment?.actualPaymentLinkId ||
                 existingPayment?.paymentLinkId ||
                 '',
             ).trim()
 
-            const rowActualMamoChargeId = String(
-              allocation?.actualMamoChargeId ||
-                actualMamoChargeId ||
-                existingPayment?.actualMamoChargeId ||
-                '',
-            ).trim()
+            const existingProcessingFee =
+              fetchedFee > 0
+                ? fetchedFee
+                : Math.round(fetchedAmount * (MAMO_PROCESSING_FEE_PERCENTAGE / 100))
 
-            const matchedCharge =
-              rowActualMamoChargeId && capturedCharges.length > 0
-                ? capturedCharges.find((charge) => String(charge?.id || '') === rowActualMamoChargeId)
-                : null
+            const existingCustomerPayable =
+              fetchedFee > 0
+                ? fetchedAmount + fetchedFee
+                : fetchedAmount + existingProcessingFee
 
             const noteParts = [
               existingPayment?.notes || '',
-              `Manual reconciliation ${now}: payment row marked as received by admin.`,
+              `Manual reconciliation ${now}: payment row marked as received from fetched Mamo PAY-ID.`,
+              `Mamo PAY-ID: ${rowActualMamoChargeId}.`,
+              `Fetched Mamo status: ${fetchedMamoStatus}.`,
+              `Fetched captured amount: ${fetchedCurrency} ${fetchedAmount}.`,
+              fetchedFee > 0
+                ? `Fetched Mamo fee: ${fetchedCurrency} ${fetchedFee}.`
+                : `Mamo fee was not returned by the API response; recorded calculated ${MAMO_PROCESSING_FEE_PERCENTAGE}% fee as ${fetchedCurrency} ${existingProcessingFee}.`,
               rowActualPaymentLinkId ? `Actual Mamo link ID/reference: ${rowActualPaymentLinkId}.` : '',
               rowActualPaymentLink ? `Actual Mamo payment link: ${rowActualPaymentLink}.` : '',
-              rowActualMamoChargeId ? `Actual Mamo charge/reference: ${rowActualMamoChargeId}.` : '',
-              capturedCharges.length > 0
-                ? `Captured Mamo charges found for actual link: ${capturedCharges.length}; captured total AED ${capturedTotal}.`
-                : rowActualPaymentLinkId
-                  ? 'No captured charge details were fetched automatically; reconciled manually based on admin confirmation.'
-                  : '',
               notes,
             ].filter(Boolean)
 
             payments[index] = {
               ...existingPayment,
-              amount,
+              amount: fetchedAmount,
               status: 'completed',
               installmentStage: 'paid',
               paidAt,
@@ -4885,12 +5124,18 @@ export const Reservations: CollectionConfig = {
               actualPaymentLink: rowActualPaymentLink,
               actualPaymentLinkId: rowActualPaymentLinkId,
               actualMamoChargeId: rowActualMamoChargeId,
-              actualMamoChargeStatus: matchedCharge?.status || (capturedCharges.length > 0 ? 'captured' : ''),
-              actualCapturedAmount:
-                matchedCharge?.amount !== undefined && matchedCharge?.amount !== null
-                  ? Math.max(0, Math.round(Number(matchedCharge.amount || 0)))
-                  : amount,
-              actualCapturedAt: matchedCharge?.created_date || matchedCharge?.createdAt || paidAt,
+              actualMamoChargeStatus: fetchedMamoStatus,
+              actualCapturedAmount: fetchedAmount,
+              actualCapturedFeeAmount: fetchedFee || existingProcessingFee,
+              actualCapturedNetAmount:
+                fetchedNetAmount > 0
+                  ? fetchedNetAmount
+                  : Math.max(0, fetchedAmount - (fetchedFee || existingProcessingFee)),
+              actualCapturedCurrency: fetchedCurrency,
+              actualCapturedAt: paidAt,
+              processingFeePercentage: MAMO_PROCESSING_FEE_PERCENTAGE,
+              processingFeeAmount: fetchedFee || existingProcessingFee,
+              customerPayableAmount: existingCustomerPayable,
               reconciledAt: now,
               reconciledBy:
                 typeof req.user === 'object' && req.user
@@ -4944,7 +5189,7 @@ export const Reservations: CollectionConfig = {
             paidTotal,
             totalPrice,
             status: nextStatus,
-            capturedCharges,
+            mamoCharge,
             capturedTotal,
           })
         } catch (error) {
@@ -7240,6 +7485,30 @@ export const Reservations: CollectionConfig = {
           name: 'actualCapturedAmount',
           type: 'number',
           label: 'Actual Captured Amount',
+          admin: {
+            readOnly: true,
+          },
+        },
+        {
+          name: 'actualCapturedFeeAmount',
+          type: 'number',
+          label: 'Actual Mamo Fee Amount',
+          admin: {
+            readOnly: true,
+          },
+        },
+        {
+          name: 'actualCapturedNetAmount',
+          type: 'number',
+          label: 'Actual Net Amount After Fee',
+          admin: {
+            readOnly: true,
+          },
+        },
+        {
+          name: 'actualCapturedCurrency',
+          type: 'text',
+          label: 'Actual Captured Currency',
           admin: {
             readOnly: true,
           },
