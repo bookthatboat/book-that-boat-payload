@@ -3594,7 +3594,7 @@ const shouldAcceptIncomingPaymentsUpdate = (data?: any, req?: any, context?: any
   )
 }
 
-const preserveExistingPaymentsForNormalReservationSave = (
+const preserveExistingPaymentsForNormalReservationSave = async (
   data: any,
   originalDoc?: any,
   req?: any,
@@ -3617,8 +3617,34 @@ const preserveExistingPaymentsForNormalReservationSave = (
     paymentsUpdateSource: undefined,
   }
 
-  if (originalPayments.length === 0) {
-    return cleanedData
+  // Normal Payload Admin page saves can submit stale or empty payment form state.
+  // The Payment Schedule Manager is the only workflow allowed to change payments,
+  // so normal reservation saves must preserve the latest payment ledger from the DB,
+  // not the potentially stale originalDoc captured when the admin page loaded.
+  if (originalDoc?.id && req?.payload?.findByID) {
+    try {
+      const latestReservation = await req.payload.findByID({
+        collection: 'reservations',
+        id: originalDoc.id,
+        depth: 0,
+        overrideAccess: true,
+        req,
+      })
+
+      const latestPayments = Array.isArray((latestReservation as any)?.payments)
+        ? (latestReservation as any).payments
+        : []
+
+      return {
+        ...cleanedData,
+        payments: latestPayments,
+      }
+    } catch (error) {
+      console.warn(
+        '[reservations] Failed to fetch latest payments during normal save; falling back to originalDoc payments',
+        error,
+      )
+    }
   }
 
   return {
@@ -6504,7 +6530,7 @@ export const Reservations: CollectionConfig = {
         // the existing payment ledger.
         if (operation !== 'update') return data
 
-        return preserveExistingPaymentsForNormalReservationSave(data, originalDoc, req, context)
+        return await preserveExistingPaymentsForNormalReservationSave(data, originalDoc, req, context)
       },
 
       async ({ data, operation, originalDoc }) => {
@@ -6763,7 +6789,7 @@ export const Reservations: CollectionConfig = {
         try {
           const calculatedData = await calculateReservationTotalForSave({
             req,
-            data: preserveExistingPaymentsForNormalReservationSave(data, originalDoc, req, context),
+            data: await preserveExistingPaymentsForNormalReservationSave(data, originalDoc, req, context),
             originalDoc,
           })
 
@@ -6779,10 +6805,14 @@ export const Reservations: CollectionConfig = {
         } catch (error) {
           console.error('Error calculating final reservation total:', error)
 
-          const normalisedData = normaliseManualPaymentRowsForSave(
-            preserveExistingPaymentsForNormalReservationSave(data, originalDoc, req, context),
+          const preservedData = await preserveExistingPaymentsForNormalReservationSave(
+            data,
             originalDoc,
+            req,
+            context,
           )
+
+          const normalisedData = normaliseManualPaymentRowsForSave(preservedData, originalDoc)
 
           validateReservationPaymentSchedule({
             data: normalisedData,
