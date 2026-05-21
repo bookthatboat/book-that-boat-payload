@@ -52,6 +52,70 @@ export const Extras: CollectionConfig = {
       }
     },
   },
+  endpoints: [
+    {
+      path: '/:id/boat-assignment',
+      method: 'patch',
+      handler: async (req) => {
+        const routeParams = (req as any).routeParams || {}
+        const id = Array.isArray(routeParams.id) ? routeParams.id[0] : routeParams.id
+
+        try {
+          if (!req.user) {
+            return Response.json({ message: 'Unauthorized.' }, { status: 401 })
+          }
+
+          if (!id) {
+            return Response.json({ message: 'Missing extra ID.' }, { status: 400 })
+          }
+
+          const body =
+            typeof req.json === 'function'
+              ? await req.json().catch(() => null)
+              : ((req as any).data ?? null)
+
+          const boatIds = Array.isArray(body?.boatIds)
+            ? body.boatIds.filter((boatId: unknown) => typeof boatId === 'string' && boatId)
+            : null
+
+          if (!boatIds) {
+            return Response.json({ message: 'boatIds must be an array.' }, { status: 400 })
+          }
+
+          const updatedExtra = await req.payload.update({
+            collection: 'extras',
+            id,
+            data: {
+              boat: Array.from(new Set(boatIds)),
+            },
+            depth: 0,
+            overrideAccess: true,
+          })
+
+          return Response.json({
+            doc: updatedExtra,
+          })
+        } catch (error) {
+          console.error('[extras/boat-assignment] failed', {
+            extraId: id,
+            error,
+          })
+
+          return Response.json(
+            {
+              message:
+                error instanceof Error
+                  ? error.message
+                  : 'Could not update extra boat assignment.',
+            },
+            {
+              status: 500,
+            },
+          )
+        }
+      },
+    },
+  ],
   hooks: {
     beforeChange: [
       async ({ data, operation }) => {
