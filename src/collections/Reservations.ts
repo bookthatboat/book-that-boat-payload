@@ -3153,10 +3153,12 @@ const validateReservationPaymentSchedule = ({
   data,
   originalDoc,
   operation,
+  context,
 }: {
   data: any
   originalDoc?: any
   operation?: string
+  context?: any
 }) => {
   const payments = Array.isArray(data?.payments)
     ? data.payments
@@ -3217,7 +3219,18 @@ const validateReservationPaymentSchedule = ({
 
   const mustHaveFullSchedule = ['awaiting payment', 'confirmed_balance_due', 'confirmed'].includes(nextStatus)
 
-  if (mustHaveFullSchedule && Math.round(activeScheduledTotal) < Math.round(totalPrice)) {
+  // Manual Mamo PAY-ID reconciliation can legitimately add one partial received
+  // payment at a time. Keep row amount/date validation above, but do not require
+  // the full reservation total to be covered during this specific endpoint flow.
+  const allowPartialPaymentSchedule =
+    context?.allowPartialPaymentSchedule === true ||
+    context?.skipFullPaymentCoverageValidation === true
+
+  if (
+    mustHaveFullSchedule &&
+    !allowPartialPaymentSchedule &&
+    Math.round(activeScheduledTotal) < Math.round(totalPrice)
+  ) {
     throw new Error(
       `Payment schedule does not cover the reservation total. Scheduled/received total is AED ${Math.round(
         activeScheduledTotal,
@@ -3552,6 +3565,8 @@ const activateDueScheduledPayments = async (payload: any) => {
               paymentsUpdateSource: 'payment-manager',
               skipPaymentReconciliation: true,
               skipBalancePaymentLink: true,
+              skipFullPaymentCoverageValidation: true,
+              allowPartialPaymentSchedule: true,
             },
           }),
         )
@@ -5220,6 +5235,8 @@ export const Reservations: CollectionConfig = {
               paymentsUpdateSource: 'payment-manager',
               skipPaymentReconciliation: true,
               skipBalancePaymentLink: true,
+              skipFullPaymentCoverageValidation: true,
+              allowPartialPaymentSchedule: true,
             },
           })
 
@@ -5504,6 +5521,8 @@ export const Reservations: CollectionConfig = {
               paymentsUpdateSource: 'payment-manager',
               skipPaymentReconciliation: true,
               skipBalancePaymentLink: true,
+              skipFullPaymentCoverageValidation: true,
+              allowPartialPaymentSchedule: true,
             },
           })
 
@@ -6799,6 +6818,7 @@ export const Reservations: CollectionConfig = {
             data: normalisedData,
             originalDoc,
             operation,
+            context,
           })
 
           return normalisedData
@@ -6818,6 +6838,7 @@ export const Reservations: CollectionConfig = {
             data: normalisedData,
             originalDoc,
             operation,
+            context,
           })
 
           return normalisedData
