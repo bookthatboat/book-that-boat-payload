@@ -646,8 +646,20 @@ export function ReservationPriceCalculator() {
   ])
 
   useEffect(() => {
-    setTotalPriceValue(Math.round(calculation.finalTotal))
-  }, [calculation.finalTotal, setTotalPriceValue])
+    const nextTotal = Math.round(calculation.finalTotal)
+    setTotalPriceValue(nextTotal)
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('reservation-total-updated', {
+          detail: {
+            reservationId: reservationIdForPayments || undefined,
+            totalPrice: nextTotal,
+          },
+        }),
+      )
+    }
+  }, [calculation.finalTotal, reservationIdForPayments, setTotalPriceValue])
 
   return (
     <div className="btb-reservation-price" style={styles.wrap}>
