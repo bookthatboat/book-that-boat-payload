@@ -1234,16 +1234,12 @@ const getMamoChargeNetAmount = (charge: any) => {
 
 const splitMamoGrossAmount = ({
   grossAmount,
-  fetchedFee,
-  fetchedNetAmount,
 }: {
   grossAmount: number
   fetchedFee?: number
   fetchedNetAmount?: number
 }) => {
   const safeGrossAmount = Math.max(0, Math.round(Number(grossAmount || 0)))
-  const safeFetchedFee = Math.max(0, Math.round(Number(fetchedFee || 0)))
-  const safeFetchedNetAmount = Math.max(0, Math.round(Number(fetchedNetAmount || 0)))
 
   if (safeGrossAmount <= 0) {
     return {
@@ -1254,28 +1250,16 @@ const splitMamoGrossAmount = ({
     }
   }
 
-  if (safeFetchedFee > 0 && safeFetchedFee < safeGrossAmount) {
-    const baseAmount = Math.max(0, safeGrossAmount - safeFetchedFee)
-
-    return {
-      baseAmount,
-      feeAmount: safeFetchedFee,
-      customerPayableAmount: safeGrossAmount,
-      netAmount: safeFetchedNetAmount > 0 ? safeFetchedNetAmount : baseAmount,
-    }
-  }
-
-  if (safeFetchedNetAmount > 0 && safeFetchedNetAmount < safeGrossAmount) {
-    const feeAmount = Math.max(0, safeGrossAmount - safeFetchedNetAmount)
-
-    return {
-      baseAmount: safeFetchedNetAmount,
-      feeAmount,
-      customerPayableAmount: safeGrossAmount,
-      netAmount: safeFetchedNetAmount,
-    }
-  }
-
+  // Mamo returns the gross/customer-paid amount for the PAY-ID.
+  // Book That Boat charges the customer base amount + 4% surcharge.
+  //
+  // Example:
+  // gross/customer paid = AED 884
+  // base amount = 884 / 1.04 = AED 850
+  // customer surcharge / Mamo fee shown in admin = AED 34
+  //
+  // Do not use Mamo's returned fee/net fields here, because those may represent
+  // settlement/merchant-side fees rather than the customer surcharge.
   const baseAmount = Math.round(
     safeGrossAmount / (1 + MAMO_PROCESSING_FEE_PERCENTAGE / 100),
   )
@@ -5095,8 +5079,6 @@ export const Reservations: CollectionConfig = {
             netAmount,
           } = splitMamoGrossAmount({
             grossAmount: fetchedGrossAmount,
-            fetchedFee,
-            fetchedNetAmount,
           })
 
           if (baseAmount <= 0) {
