@@ -253,7 +253,7 @@ const readPaymentsFromSession = (reservationId: string): PaymentRow[] | null => 
 }
 
 const fetchReservationPayments = async (reservationId: string): Promise<PaymentRow[] | null> => {
-  const response = await fetch(`/api/reservations/${reservationId}?depth=0`, {
+  const response = await fetch(`/api/reservations/${reservationId}/payment-state`, {
     method: 'GET',
     credentials: 'include',
     headers: {

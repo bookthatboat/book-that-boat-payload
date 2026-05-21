@@ -4550,6 +4550,70 @@ export const Reservations: CollectionConfig = {
   slug: 'reservations',
   endpoints: [
     {
+      path: '/:id/payment-state',
+      method: 'get',
+      handler: async (req) => {
+        const routeParams = (req as any).routeParams || {}
+        const id = Array.isArray(routeParams.id) ? routeParams.id[0] : routeParams.id
+
+        try {
+          if (!req.user) {
+            return Response.json(
+              {
+                message: 'Unauthorized.',
+              },
+              {
+                status: 401,
+              },
+            )
+          }
+
+          if (!id) {
+            return Response.json(
+              {
+                message: 'Missing reservation ID.',
+              },
+              {
+                status: 400,
+              },
+            )
+          }
+
+          const reservation = await req.payload.findByID({
+            collection: 'reservations',
+            id,
+            depth: 0,
+            overrideAccess: true,
+          })
+
+          return Response.json({
+            doc: {
+              id: reservation.id,
+              status: (reservation as any).status,
+              totalPrice: (reservation as any).totalPrice,
+              payments: Array.isArray((reservation as any).payments)
+                ? (reservation as any).payments
+                : [],
+            },
+          })
+        } catch (error) {
+          console.error('[reservation payment-state] failed', {
+            reservationId: id,
+            error,
+          })
+
+          return Response.json(
+            {
+              message: error instanceof Error ? error.message : 'Could not load reservation payment state.',
+            },
+            {
+              status: 500,
+            },
+          )
+        }
+      },
+    },
+    {
       path: '/:id/save-payments',
       method: 'patch',
       handler: async (req) => {
