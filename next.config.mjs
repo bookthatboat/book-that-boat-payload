@@ -12,10 +12,16 @@ const codespaceOrigin = codespaceName
   ? `${codespaceName}-3000.${codespaceDomain}`
   : undefined
 
+const adminHostFromEnv = process.env.PAYLOAD_PUBLIC_SERVER_URL
+  ? new URL(process.env.PAYLOAD_PUBLIC_SERVER_URL).host
+  : undefined
+
 const serverActionAllowedOrigins = [
   'localhost:3000',
   '127.0.0.1:3000',
   'book-that-boat-payload-production.up.railway.app',
+  'bookings.bookthatboat.com',
+  adminHostFromEnv,
   codespaceOrigin,
 ].filter(Boolean)
 

@@ -42,6 +42,7 @@ const allowedOrigins = [
   'https://www.bookthatboat.com',
   'https://book-that-boat-frontend.vercel.app',
   'https://book-that-boat-payload-production.up.railway.app',
+  'https://bookings.bookthatboat.com',
   codespaceOrigin,
   process.env.PAYLOAD_PUBLIC_SERVER_URL || '',
 ].filter(Boolean)
@@ -58,6 +59,9 @@ const parseLengthFt = (value: unknown): number | undefined => {
 }
 
 export default buildConfig({
+  serverURL:
+    process.env.PAYLOAD_PUBLIC_SERVER_URL ||
+    'https://book-that-boat-payload-production.up.railway.app',
   cors: allowedOrigins,
   csrf: allowedOrigins,
   onInit: async (payload) => {
