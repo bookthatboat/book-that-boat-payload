@@ -2752,6 +2752,29 @@ const isPaymentActiveForSchedule = (payment: any) => {
   return ['scheduled', 'pending', 'completed'].includes(payment?.status)
 }
 
+const hasManagedPaymentSchedule = (payments: any[] | undefined) => {
+  if (!Array.isArray(payments)) return false
+
+  const activeRows = payments.filter(isPaymentActiveForSchedule)
+  if (activeRows.length > 1) return true
+
+  return payments.some((payment) => {
+    const status = payment?.status
+    const kind = payment?.kind
+
+    return (
+      status === 'scheduled' ||
+      kind === 'downpayment' ||
+      kind === 'installment' ||
+      kind === 'balance'
+    )
+  })
+}
+
+const getPaymentMethodForSchedule = (payments: any[] | undefined) => {
+  return hasManagedPaymentSchedule(payments) ? 'scheduled' : 'full'
+}
+
 const isPaymentReceived = (payment: any) => {
   return payment?.status === 'completed'
 }
@@ -3427,6 +3450,21 @@ const reconcileReservationPaymentsAfterTotalChange = async ({
   const totalChanged = totalPrice !== previousTotalPrice
 
   const existingPayments = Array.isArray(doc.payments) ? [...doc.payments] : []
+
+  if (hasManagedPaymentSchedule(existingPayments)) {
+    console.warn(
+      '[reservation payment reconciliation] Managed payment schedule detected; skipping automatic replacement with a single full-payment row.',
+      {
+        reservationId: doc.id,
+        paymentRows: existingPayments.length,
+        totalPrice,
+        previousTotalPrice,
+      },
+    )
+
+    return doc
+  }
+
   const hasTopLevelPaymentLink = Boolean(doc.paymentLinkId || doc.paymentLink)
   const shouldClearTopLevelMamoLink = currentMethod !== 'Mamo Pay' && hasTopLevelPaymentLink
 
@@ -4656,6 +4694,7 @@ export const Reservations: CollectionConfig = {
             id,
             data: {
               payments,
+              paymentMethod: getPaymentMethodForSchedule(payments),
               paymentsUpdateSource: 'payment-manager',
             } as any,
             overrideAccess: true,
