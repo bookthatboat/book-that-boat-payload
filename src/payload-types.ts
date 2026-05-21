@@ -514,6 +514,22 @@ export interface Reservation {
         paymentLink?: string | null;
         paymentLinkId?: string | null;
         /**
+         * The payment link actually used by the customer, if different from the generated row link.
+         */
+        actualPaymentLink?: string | null;
+        /**
+         * The Mamo link ID/reference actually used by the customer.
+         */
+        actualPaymentLinkId?: string | null;
+        actualMamoChargeId?: string | null;
+        actualMamoChargeStatus?: string | null;
+        actualCapturedAmount?: number | null;
+        actualCapturedAt?: string | null;
+        reconciledAt?: string | null;
+        reconciledBy?: string | null;
+        reconciliationSource?: ('manual_admin' | 'mamo_polling' | 'webhook') | null;
+        reconciliationNotes?: string | null;
+        /**
          * Any additional notes about this payment
          */
         notes?: string | null;
@@ -2674,6 +2690,16 @@ export interface ReservationsSelect<T extends boolean = true> {
         balance?: T;
         paymentLink?: T;
         paymentLinkId?: T;
+        actualPaymentLink?: T;
+        actualPaymentLinkId?: T;
+        actualMamoChargeId?: T;
+        actualMamoChargeStatus?: T;
+        actualCapturedAmount?: T;
+        actualCapturedAt?: T;
+        reconciledAt?: T;
+        reconciledBy?: T;
+        reconciliationSource?: T;
+        reconciliationNotes?: T;
         notes?: T;
       };
   transactionId?: T;

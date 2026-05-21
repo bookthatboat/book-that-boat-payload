@@ -1149,6 +1149,73 @@ const checkMamoPaymentStatus = async (paymentLinkId: string): Promise<boolean> =
   }
 }
 
+
+const getMamoCapturedChargesForLink = async (paymentLinkId: string): Promise<any[]> => {
+  if (!paymentLinkId) return []
+
+  const trimmedId = String(paymentLinkId).trim()
+
+  if (!trimmedId || isMockLinkId(trimmedId)) return []
+
+  if (!MAMOPAY_CONFIG.apiKey) {
+    console.warn('[MamoPay] API key missing. Cannot fetch captured charges.')
+    return []
+  }
+
+  const capturedCharges: any[] = []
+
+  try {
+    const encoded = encodeURIComponent(trimmedId)
+    const response = await fetch(
+      `${process.env.MAMOPAY_BASE_URL || MAMOPAY_CONFIG.baseUrl}/manage_api/v1/charges?payment_link_id=${encoded}`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${MAMOPAY_CONFIG.apiKey}`,
+          accept: 'application/json',
+        },
+      },
+    )
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '')
+      console.error('[MamoPay] Failed to fetch captured charges', {
+        paymentLinkId: trimmedId,
+        status: response.status,
+        statusText: response.statusText,
+        body,
+      })
+      return []
+    }
+
+    const data = await response.json().catch(() => null)
+    const charges = Array.isArray(data?.data)
+      ? data.data
+      : Array.isArray(data)
+        ? data
+        : []
+
+    for (const charge of charges) {
+      const status = String(charge?.status || '').toLowerCase()
+      const chargeLinkId = String(charge?.payment_link_id || charge?.paymentLinkId || '').trim()
+
+      if (status === 'captured' && (!chargeLinkId || chargeLinkId === trimmedId)) {
+        capturedCharges.push(charge)
+      }
+    }
+
+    return capturedCharges
+  } catch (error) {
+    console.error('[MamoPay] Error fetching captured charges', {
+      paymentLinkId: trimmedId,
+      error,
+    })
+
+    return []
+  }
+}
+
 const cleanupProcessedReservations = () => {
   // Prevent duplicate cleanup interval during Next.js dev HMR
   if (jobs.cleanupInterval) return
@@ -4664,6 +4731,241 @@ export const Reservations: CollectionConfig = {
       },
     },
     {
+      path: '/:id/reconcile-payments',
+      method: 'patch',
+      handler: async (req) => {
+        const routeParams = (req as any).routeParams || {}
+        const id = Array.isArray(routeParams.id) ? routeParams.id[0] : routeParams.id
+
+        try {
+          if (!req.user) {
+            return Response.json({ message: 'Unauthorized.' }, { status: 401 })
+          }
+
+          if (!id) {
+            return Response.json({ message: 'Missing reservation ID.' }, { status: 400 })
+          }
+
+          const body =
+            typeof req.json === 'function'
+              ? await req.json().catch(() => null)
+              : ((req as any).data || (req as any).body || null)
+
+          const allocations = Array.isArray(body?.allocations) ? body.allocations : []
+
+          if (allocations.length === 0) {
+            return Response.json(
+              {
+                message: 'Select at least one payment row to reconcile.',
+              },
+              { status: 400 },
+            )
+          }
+
+          const reservation = await req.payload.findByID({
+            collection: 'reservations',
+            id,
+            depth: 0,
+            overrideAccess: true,
+          })
+
+          const payments = Array.isArray((reservation as any).payments)
+            ? [...(reservation as any).payments]
+            : []
+
+          if (payments.length === 0) {
+            return Response.json(
+              { message: 'This reservation has no payment rows to reconcile.' },
+              { status: 400 },
+            )
+          }
+
+          const now = new Date().toISOString()
+          const notes = String(body?.notes || '').trim()
+          const actualPaymentLink = String(body?.actualPaymentLink || '').trim()
+          const actualPaymentLinkId = String(body?.actualPaymentLinkId || '').trim()
+          const actualMamoChargeId = String(body?.actualMamoChargeId || '').trim()
+
+          let capturedCharges: any[] = []
+          if (actualPaymentLinkId) {
+            capturedCharges = await getMamoCapturedChargesForLink(actualPaymentLinkId)
+          }
+
+          const capturedTotal = capturedCharges.reduce((sum, charge) => {
+            return sum + Math.max(0, Math.round(Number(charge?.amount || charge?.amount_cents || 0)))
+          }, 0)
+
+          const updatedIndexes: number[] = []
+
+          for (const allocation of allocations) {
+            const paymentId = String(allocation?.paymentId || '').trim()
+            const rowIndex =
+              typeof allocation?.rowIndex === 'number'
+                ? allocation.rowIndex
+                : Number.isFinite(Number(allocation?.rowIndex))
+                  ? Number(allocation.rowIndex)
+                  : -1
+
+            const index = paymentId
+              ? payments.findIndex((payment: any) => String(payment?.id || '') === paymentId)
+              : rowIndex
+
+            if (index < 0 || index >= payments.length || !payments[index]) {
+              throw new Error(
+                paymentId
+                  ? `Could not find payment row with ID ${paymentId}.`
+                  : `Could not find payment row at index ${rowIndex}.`,
+              )
+            }
+
+            const existingPayment = payments[index]
+
+            const amount =
+              allocation?.amount !== undefined && allocation?.amount !== null
+                ? Math.max(0, Math.round(Number(allocation.amount || 0)))
+                : Math.max(0, Math.round(Number(existingPayment?.amount || 0)))
+
+            const paidAt = allocation?.paidAt
+              ? new Date(allocation.paidAt).toISOString()
+              : now
+
+            const rowActualPaymentLink = String(
+              allocation?.actualPaymentLink ||
+                actualPaymentLink ||
+                existingPayment?.actualPaymentLink ||
+                existingPayment?.paymentLink ||
+                '',
+            ).trim()
+
+            const rowActualPaymentLinkId = String(
+              allocation?.actualPaymentLinkId ||
+                actualPaymentLinkId ||
+                existingPayment?.actualPaymentLinkId ||
+                existingPayment?.paymentLinkId ||
+                '',
+            ).trim()
+
+            const rowActualMamoChargeId = String(
+              allocation?.actualMamoChargeId ||
+                actualMamoChargeId ||
+                existingPayment?.actualMamoChargeId ||
+                '',
+            ).trim()
+
+            const matchedCharge =
+              rowActualMamoChargeId && capturedCharges.length > 0
+                ? capturedCharges.find((charge) => String(charge?.id || '') === rowActualMamoChargeId)
+                : null
+
+            const noteParts = [
+              existingPayment?.notes || '',
+              `Manual reconciliation ${now}: payment row marked as received by admin.`,
+              rowActualPaymentLinkId ? `Actual Mamo link ID/reference: ${rowActualPaymentLinkId}.` : '',
+              rowActualPaymentLink ? `Actual Mamo payment link: ${rowActualPaymentLink}.` : '',
+              rowActualMamoChargeId ? `Actual Mamo charge/reference: ${rowActualMamoChargeId}.` : '',
+              capturedCharges.length > 0
+                ? `Captured Mamo charges found for actual link: ${capturedCharges.length}; captured total AED ${capturedTotal}.`
+                : rowActualPaymentLinkId
+                  ? 'No captured charge details were fetched automatically; reconciled manually based on admin confirmation.'
+                  : '',
+              notes,
+            ].filter(Boolean)
+
+            payments[index] = {
+              ...existingPayment,
+              amount,
+              status: 'completed',
+              installmentStage: 'paid',
+              paidAt,
+              method: existingPayment?.method || 'Mamo Pay',
+
+              paymentLink: existingPayment?.paymentLink || rowActualPaymentLink || '',
+              paymentLinkId: existingPayment?.paymentLinkId || rowActualPaymentLinkId || '',
+
+              actualPaymentLink: rowActualPaymentLink,
+              actualPaymentLinkId: rowActualPaymentLinkId,
+              actualMamoChargeId: rowActualMamoChargeId,
+              actualMamoChargeStatus: matchedCharge?.status || (capturedCharges.length > 0 ? 'captured' : ''),
+              actualCapturedAmount:
+                matchedCharge?.amount !== undefined && matchedCharge?.amount !== null
+                  ? Math.max(0, Math.round(Number(matchedCharge.amount || 0)))
+                  : amount,
+              actualCapturedAt: matchedCharge?.created_date || matchedCharge?.createdAt || paidAt,
+              reconciledAt: now,
+              reconciledBy:
+                typeof req.user === 'object' && req.user
+                  ? String((req.user as any).id || (req.user as any).email || 'admin')
+                  : 'admin',
+              reconciliationNotes: notes,
+              reconciliationSource: 'manual_admin',
+
+              notes: noteParts.join('\\n'),
+            }
+
+            updatedIndexes.push(index)
+          }
+
+          const totalPrice = Math.max(0, Math.round(Number((reservation as any).totalPrice || 0)))
+
+          const paidTotal = payments.reduce((sum: number, payment: any) => {
+            if (payment?.status !== 'completed') return sum
+            return sum + Math.max(0, Math.round(Number(payment?.amount || 0)))
+          }, 0)
+
+          const nextStatus =
+            totalPrice > 0 && Math.round(paidTotal) >= Math.round(totalPrice)
+              ? 'confirmed'
+              : 'confirmed_balance_due'
+
+          const updatedDoc = await req.payload.update({
+            collection: 'reservations',
+            id,
+            data: {
+              payments,
+              status: nextStatus,
+              paymentsUpdateSource: 'payment-manager',
+            } as any,
+            overrideAccess: true,
+            context: {
+              paymentsUpdateSource: 'payment-manager',
+              skipPaymentReconciliation: true,
+              skipBalancePaymentLink: true,
+            },
+          })
+
+          const savedPayments = Array.isArray((updatedDoc as any).payments)
+            ? (updatedDoc as any).payments
+            : payments
+
+          return Response.json({
+            doc: updatedDoc,
+            updatedIndexes,
+            savedPayments,
+            paidTotal,
+            totalPrice,
+            status: nextStatus,
+            capturedCharges,
+            capturedTotal,
+          })
+        } catch (error) {
+          console.error('[reconcile-payments] failed', {
+            reservationId: id,
+            error,
+          })
+
+          return Response.json(
+            {
+              message:
+                error instanceof Error
+                  ? error.message
+                  : 'Could not reconcile payment rows.',
+            },
+            { status: 500 },
+          )
+        }
+      },
+    },
+    {
       path: '/:id/save-payments',
       method: 'patch',
       handler: async (req) => {
@@ -6896,6 +7198,95 @@ export const Reservations: CollectionConfig = {
           name: 'paymentLinkId',
           type: 'text',
           label: 'Payment Link ID',
+          admin: {
+            readOnly: true,
+          },
+        },
+        {
+          name: 'actualPaymentLink',
+          type: 'text',
+          label: 'Actual Payment Link Used',
+          admin: {
+            readOnly: true,
+            description: 'The payment link actually used by the customer, if different from the generated row link.',
+          },
+        },
+        {
+          name: 'actualPaymentLinkId',
+          type: 'text',
+          label: 'Actual Payment Link ID Used',
+          admin: {
+            readOnly: true,
+            description: 'The Mamo link ID/reference actually used by the customer.',
+          },
+        },
+        {
+          name: 'actualMamoChargeId',
+          type: 'text',
+          label: 'Actual Mamo Charge / Payment Reference',
+          admin: {
+            readOnly: true,
+          },
+        },
+        {
+          name: 'actualMamoChargeStatus',
+          type: 'text',
+          label: 'Actual Mamo Charge Status',
+          admin: {
+            readOnly: true,
+          },
+        },
+        {
+          name: 'actualCapturedAmount',
+          type: 'number',
+          label: 'Actual Captured Amount',
+          admin: {
+            readOnly: true,
+          },
+        },
+        {
+          name: 'actualCapturedAt',
+          type: 'date',
+          label: 'Actual Captured At',
+          admin: {
+            readOnly: true,
+            date: { pickerAppearance: 'dayAndTime' },
+          },
+        },
+        {
+          name: 'reconciledAt',
+          type: 'date',
+          label: 'Reconciled At',
+          admin: {
+            readOnly: true,
+            date: { pickerAppearance: 'dayAndTime' },
+          },
+        },
+        {
+          name: 'reconciledBy',
+          type: 'text',
+          label: 'Reconciled By',
+          admin: {
+            readOnly: true,
+          },
+        },
+        {
+          name: 'reconciliationSource',
+          type: 'select',
+          label: 'Reconciliation Source',
+          options: [
+            { label: 'Manual Admin', value: 'manual_admin' },
+            { label: 'Mamo Polling', value: 'mamo_polling' },
+            { label: 'Webhook', value: 'webhook' },
+          ],
+          admin: {
+            readOnly: true,
+          },
+        },
+        {
+          name: 'reconciliationNotes',
+          type: 'textarea',
+          label: 'Reconciliation Notes',
           admin: {
             readOnly: true,
           },

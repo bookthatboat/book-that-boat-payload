@@ -30,6 +30,16 @@ type PaymentRow = {
   notes?: string
   paymentLink?: string
   paymentLinkId?: string
+  actualPaymentLink?: string
+  actualPaymentLinkId?: string
+  actualMamoChargeId?: string
+  actualMamoChargeStatus?: string
+  actualCapturedAmount?: number
+  actualCapturedAt?: string
+  reconciledAt?: string
+  reconciledBy?: string
+  reconciliationSource?: string
+  reconciliationNotes?: string
   processingFeePercentage?: number
   processingFeeAmount?: number
   customerPayableAmount?: number
@@ -334,6 +344,13 @@ const styles = {
     gap: 8,
     flexWrap: 'wrap',
   } as React.CSSProperties,
+  reconcilePanel: {
+    margin: 16,
+    padding: 16,
+    border: '1px solid var(--theme-elevation-200)',
+    borderRadius: 8,
+    background: 'var(--theme-elevation-100)',
+  } as React.CSSProperties,
   button: {
     border: '1px solid var(--theme-elevation-250)',
     borderRadius: 6,
@@ -586,6 +603,13 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
   const [saveMessage, setSaveMessage] = useState('')
   const [saveError, setSaveError] = useState('')
   const [selectedLinkPayment, setSelectedLinkPayment] = useState<PaymentRow | null>(null)
+  const [reconcileOpen, setReconcileOpen] = useState(false)
+  const [selectedReconcileRows, setSelectedReconcileRows] = useState<number[]>([])
+  const [actualPaymentLink, setActualPaymentLink] = useState('')
+  const [actualPaymentLinkId, setActualPaymentLinkId] = useState('')
+  const [actualMamoChargeId, setActualMamoChargeId] = useState('')
+  const [reconciliationNotes, setReconciliationNotes] = useState('')
+  const [isReconciling, setIsReconciling] = useState(false)
 
   const tripStartDate = toDateInputValue(startTimeValue)
   const reservationCreatedDate = toDateInputValue(createdAtValue) || todayInputValue()
@@ -891,6 +915,98 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
     updatePayments(recalculatedPayments.filter((_, paymentIndex) => paymentIndex !== index))
   }
 
+  const toggleReconcileRow = (index: number) => {
+    setSelectedReconcileRows((previous) =>
+      previous.includes(index)
+        ? previous.filter((item) => item !== index)
+        : [...previous, index].sort((a, b) => a - b),
+    )
+  }
+
+  const resetReconciliationForm = () => {
+    setSelectedReconcileRows([])
+    setActualPaymentLink('')
+    setActualPaymentLinkId('')
+    setActualMamoChargeId('')
+    setReconciliationNotes('')
+  }
+
+  const reconcileSelectedPayments = async () => {
+    const reservationId = getReservationIdFromAdminUrl()
+
+    if (!reservationId) {
+      setSaveError('Save the reservation first, then you can reconcile payment rows.')
+      return
+    }
+
+    if (selectedReconcileRows.length === 0) {
+      setSaveError('Select at least one payment row to reconcile.')
+      return
+    }
+
+    const confirmed = window.confirm(
+      `Mark ${selectedReconcileRows.length} selected payment row(s) as Received using the actual payment details entered?`,
+    )
+
+    if (!confirmed) return
+
+    setIsReconciling(true)
+    setSaveMessage('')
+    setSaveError('')
+
+    try {
+      const response = await fetch(`/api/reservations/${reservationId}/reconcile-payments`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          actualPaymentLink,
+          actualPaymentLinkId,
+          actualMamoChargeId,
+          notes: reconciliationNotes,
+          allocations: selectedReconcileRows.map((rowIndex) => ({
+            rowIndex,
+            amount: recalculatedPayments[rowIndex]?.amount || 0,
+          })),
+        }),
+      })
+
+      const json = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        throw new Error(json?.message || 'Could not reconcile payment rows.')
+      }
+
+      const savedPayments = Array.isArray(json?.savedPayments)
+        ? json.savedPayments
+        : Array.isArray(json?.doc?.payments)
+          ? json.doc.payments
+          : null
+
+      if (!Array.isArray(savedPayments)) {
+        throw new Error('Reconciliation completed but no saved payment rows were returned.')
+      }
+
+      setLocalPayments(savedPayments)
+      setPaymentsValue(savedPayments)
+      writeSavedPaymentsToSession(reservationId, savedPayments)
+      dispatchPaymentsUpdatedEvent(reservationId, savedPayments)
+
+      resetReconciliationForm()
+      setReconcileOpen(false)
+
+      setSaveMessage(
+        `Payment reconciliation saved. Rows updated: ${json?.updatedIndexes?.length || selectedReconcileRows.length}. Paid total: ${money(toNumber(json?.paidTotal))}.`,
+      )
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Could not reconcile payment rows.')
+    } finally {
+      setIsReconciling(false)
+    }
+  }
+
   const syncBalances = () => {
     updatePayments(recalculatedPayments)
   }
@@ -956,6 +1072,14 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
         <button type="button" onClick={syncBalances} style={styles.button}>
           Recalculate balances
         </button>
+
+        <button
+          type="button"
+          onClick={() => setReconcileOpen((open) => !open)}
+          style={styles.button}
+        >
+          Reconcile received payment
+        </button>
         <button
           type="button"
           onClick={() => persistPayments(recalculatedPayments)}
@@ -979,6 +1103,116 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
           }}
         >
           {saveError || saveMessage}
+        </div>
+      )}
+
+      {reconcileOpen && (
+        <div style={styles.reconcilePanel}>
+          <h4 style={{ margin: '0 0 8px' }}>Reconcile received payment</h4>
+          <p style={styles.help}>
+            Use this when the customer paid using a different Mamo link, the same link was paid more than once,
+            or you need to manually match real received money to payment schedule rows.
+          </p>
+
+          <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', marginTop: 12 }}>
+            <label>
+              <div style={styles.label}>Actual Mamo Link ID / Reference</div>
+              <input
+                value={actualPaymentLinkId}
+                onChange={(event) => setActualPaymentLinkId(event.target.value)}
+                placeholder="e.g. MB-LINK-..."
+                style={styles.input}
+              />
+            </label>
+
+            <label>
+              <div style={styles.label}>Actual Mamo Link URL</div>
+              <input
+                value={actualPaymentLink}
+                onChange={(event) => setActualPaymentLink(event.target.value)}
+                placeholder="Paste payment link URL"
+                style={styles.input}
+              />
+            </label>
+
+            <label>
+              <div style={styles.label}>Mamo Charge / Payment Reference</div>
+              <input
+                value={actualMamoChargeId}
+                onChange={(event) => setActualMamoChargeId(event.target.value)}
+                placeholder="Optional charge/payment ID"
+                style={styles.input}
+              />
+            </label>
+          </div>
+
+          <label style={{ display: 'block', marginTop: 12 }}>
+            <div style={styles.label}>Reconciliation Notes</div>
+            <textarea
+              value={reconciliationNotes}
+              onChange={(event) => setReconciliationNotes(event.target.value)}
+              placeholder="Example: Client paid both instalments using the second Mamo link. Reconciled by admin after checking Mamo."
+              style={{
+                ...styles.input,
+                minHeight: 70,
+              }}
+            />
+          </label>
+
+          <div style={{ marginTop: 12 }}>
+            <div style={styles.label}>Select rows to mark as Received</div>
+            <div style={{ display: 'grid', gap: 8 }}>
+              {recalculatedPayments.map((payment, index) => (
+                <label
+                  key={payment.id || index}
+                  style={{
+                    display: 'flex',
+                    gap: 8,
+                    alignItems: 'center',
+                    padding: 8,
+                    border: '1px solid var(--theme-elevation-150)',
+                    borderRadius: 6,
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedReconcileRows.includes(index)}
+                    onChange={() => toggleReconcileRow(index)}
+                    disabled={payment.status === 'completed'}
+                  />
+                  <span>
+                    Row {index + 1}: {money(toNumber(payment.amount))} · {getPaymentStatusLabel(payment.status)} · {payment.method || 'Mamo Pay'}
+                    {payment.paymentLinkId ? ` · generated link: ${payment.paymentLinkId}` : ''}
+                    {payment.actualPaymentLinkId ? ` · actual link: ${payment.actualPaymentLinkId}` : ''}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+            <button
+              type="button"
+              onClick={reconcileSelectedPayments}
+              disabled={isReconciling || selectedReconcileRows.length === 0}
+              style={{
+                ...styles.button,
+                opacity: isReconciling || selectedReconcileRows.length === 0 ? 0.6 : 1,
+                cursor: isReconciling || selectedReconcileRows.length === 0 ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {isReconciling ? 'Reconciling...' : 'Mark selected rows as Received'}
+            </button>
+
+            <button
+              type="button"
+              onClick={resetReconciliationForm}
+              disabled={isReconciling}
+              style={styles.button}
+            >
+              Clear reconciliation form
+            </button>
+          </div>
         </div>
       )}
 
@@ -1248,6 +1482,29 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
                 <div style={styles.value}>Not generated yet</div>
               )}
             </div>
+
+            {(selectedLinkPayment.actualPaymentLinkId ||
+              selectedLinkPayment.actualPaymentLink ||
+              selectedLinkPayment.actualMamoChargeId ||
+              selectedLinkPayment.reconciledAt) && (
+              <div>
+                <div style={styles.label}>Actual Reconciled Payment</div>
+                <div style={styles.small}>
+                  {selectedLinkPayment.actualPaymentLinkId
+                    ? `Actual link ID: ${selectedLinkPayment.actualPaymentLinkId}`
+                    : ''}
+                  {selectedLinkPayment.actualMamoChargeId
+                    ? ` · Charge/reference: ${selectedLinkPayment.actualMamoChargeId}`
+                    : ''}
+                  {selectedLinkPayment.actualCapturedAmount
+                    ? ` · Captured: ${money(toNumber(selectedLinkPayment.actualCapturedAmount))}`
+                    : ''}
+                  {selectedLinkPayment.reconciledAt
+                    ? ` · Reconciled: ${toDateInputValue(selectedLinkPayment.reconciledAt)}`
+                    : ''}
+                </div>
+              </div>
+            )}
 
             <div style={styles.small}>
               Status: {getPaymentStatusLabel(selectedLinkPayment.status)} · Method:{' '}
