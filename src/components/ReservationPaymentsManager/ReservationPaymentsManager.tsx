@@ -456,6 +456,15 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
   const deletedPaymentKeysRef = useRef<Set<string>>(new Set())
   const hasUserEditedPaymentsRef = useRef(false)
 
+  const filterDeletedPaymentRows = (rows: PaymentRow[]) => {
+    if (deletedPaymentKeysRef.current.size === 0) return rows
+
+    return rows.filter((payment) => {
+      const key = getPaymentDeleteKey(payment)
+      return !key || !deletedPaymentKeysRef.current.has(key)
+    })
+  }
+
   useEffect(() => {
     latestPaymentsRef.current = localPayments
   }, [localPayments])
@@ -799,8 +808,9 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
         )
       }
 
-      const paymentsToRender =
-        Array.isArray(savedPayments) && savedPayments.length > 0 ? savedPayments : paymentsToSave
+      const paymentsToRender = filterDeletedPaymentRows(
+        Array.isArray(savedPayments) && savedPayments.length > 0 ? savedPayments : paymentsToSave,
+      )
 
       // The save-payments endpoint already returns the saved payment rows.
       // Avoid an immediate follow-up reservation GET because it can intermittently 500
@@ -840,7 +850,10 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
   }
 
   const updatePayment = (index: number, patch: Partial<PaymentRow>) => {
-    const nextPayments = recalculatedPayments.map((payment, paymentIndex) => {
+    const basePayments =
+      latestPaymentsRef.current.length > 0 ? latestPaymentsRef.current : recalculatedPayments
+
+    const nextPayments = basePayments.map((payment, paymentIndex) => {
       if (paymentIndex !== index) return payment
 
       const merged = {
@@ -852,6 +865,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
       const method = merged.method || 'Mamo Pay'
       const status = normaliseStatus(merged.status)
       const feeFields = getFeeFields(amount, method)
+      const isReceivedOrRefunded = status === 'completed' || status === 'refunded'
 
       return {
         ...merged,
@@ -859,16 +873,12 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
         method,
         status,
         ...feeFields,
-        paidAt:
-          status === 'completed' || status === 'refunded'
-            ? merged.paidAt || new Date().toISOString()
-            : status === 'scheduled' || status === 'pending'
-              ? ''
-              : merged.paidAt,
-        installmentStage: status === 'completed' ? 'paid' : merged.installmentStage,
+        paidAt: isReceivedOrRefunded ? merged.paidAt || new Date().toISOString() : '',
+        installmentStage: status === 'completed' ? 'paid' : merged.installmentStage || 'ready_to_be_installed',
       }
     })
 
+    latestPaymentsRef.current = nextPayments
     updatePayments(nextPayments)
   }
 
