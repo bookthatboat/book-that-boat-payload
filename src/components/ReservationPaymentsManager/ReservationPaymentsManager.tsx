@@ -696,8 +696,16 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
       return
     }
 
+    // On mobile, React/Payload Admin can lag one render behind after number/select edits.
+    // Save from the latest local edit ref so values like Amount and Method do not revert
+    // to the previous rendered recalculatedPayments snapshot.
+    const sourcePayments =
+      hasUserEditedPaymentsRef.current && latestPaymentsRef.current.length > 0
+        ? latestPaymentsRef.current
+        : nextPayments
+
     const paymentsToSave = normalisePaymentRowsForSave({
-      payments: nextPayments,
+      payments: sourcePayments,
       totalPrice,
       methodValue,
       paymentPlanValue,
@@ -784,6 +792,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
       // during read-after-write/activation timing even though the save itself succeeded.
       // Update local render state first so the table does not disappear even if Payload's
       // internal form state is stale, empty, or remounted after the API save.
+      latestPaymentsRef.current = paymentsToRender
       setLocalPayments(paymentsToRender)
       setPaymentsValue(paymentsToRender)
       writeSavedPaymentsToSession(reservationId, paymentsToRender)
@@ -800,6 +809,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
 
   const updatePayments = (nextPayments: PaymentRow[]) => {
     hasUserEditedPaymentsRef.current = true
+    latestPaymentsRef.current = nextPayments
 
     setLocalPayments(nextPayments)
     setPaymentsValue(nextPayments)
@@ -809,7 +819,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
       dispatchPaymentsUpdatedEvent(reservationIdForState, nextPayments)
     }
 
-    setSaveMessage('')
+    setSaveMessage('Unsaved payment changes. Tap “Save payment schedule” before leaving this page.')
     setSaveError('')
   }
 
@@ -993,6 +1003,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
         throw new Error('Manual Mamo payment was added but no saved payment rows were returned.')
       }
 
+      latestPaymentsRef.current = savedPayments
       setLocalPayments(savedPayments)
       setPaymentsValue(savedPayments)
       writeSavedPaymentsToSession(reservationId, savedPayments)
@@ -1146,7 +1157,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
         </button>
         <button
           type="button"
-          onClick={() => persistPayments(recalculatedPayments)}
+          onClick={() => persistPayments(latestPaymentsRef.current.length > 0 ? latestPaymentsRef.current : recalculatedPayments)}
           disabled={isSavingPayments}
           style={{
             ...styles.button,
@@ -1414,7 +1425,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                         <button
                           type="button"
-                          onClick={() => persistPayments(recalculatedPayments)}
+                          onClick={() => persistPayments(latestPaymentsRef.current.length > 0 ? latestPaymentsRef.current : recalculatedPayments)}
                           disabled={isSavingPayments}
                           style={{
                             ...styles.button,
