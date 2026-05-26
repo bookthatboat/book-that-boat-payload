@@ -2434,13 +2434,8 @@ const getBalanceDueEmailTemplate = (
       : '0'
 
   const payments = Array.isArray(reservation.payments) ? reservation.payments : []
-  const totalPrice = Number(reservation.totalPrice || 0)
-
-  const paidAmount = payments.reduce((sum, payment) => {
-    if (payment?.status !== 'completed') return sum
-    return sum + Number(payment.amount || 0)
-  }, 0)
-
+  const totalPrice = Math.max(0, Math.round(Number(reservation.totalPrice || 0)))
+  const paidAmount = Math.max(0, Math.round(getCompletedPaidAmount(payments as any)))
   const balanceDue = Math.max(0, Math.round(totalPrice - paidAmount))
 
   const outstandingPayments = payments.filter((payment) => {
@@ -2509,13 +2504,22 @@ const getBalanceDueEmailTemplate = (
             `
           })
           .join('')
-      : `
-          <tr>
-            <td colspan="4" style="padding:12px;background:#ffffff;color:#374151;text-align:center;">
-              No future payment rows are currently scheduled. Our team will contact you if any balance remains.
-            </td>
-          </tr>
-        `
+      : balanceDue > 0
+        ? `
+            <tr>
+              <td style="padding:12px;background:#ffffff;border-bottom:1px solid #e5e7eb;color:#111827;font-weight:800;">AED ${balanceDue.toLocaleString()}</td>
+              <td style="padding:12px;background:#ffffff;border-bottom:1px solid #e5e7eb;color:#111827;">To be confirmed</td>
+              <td style="padding:12px;background:#ffffff;border-bottom:1px solid #e5e7eb;color:#111827;">To be confirmed</td>
+              <td style="padding:12px;background:#ffffff;border-bottom:1px solid #e5e7eb;color:#374151;">Our booking team will confirm the settlement details.</td>
+            </tr>
+          `
+        : `
+            <tr>
+              <td colspan="4" style="padding:12px;background:#ffffff;color:#374151;text-align:center;">
+                No balance remains due.
+              </td>
+            </tr>
+          `
 
   const departureLocation =
     (reservation as any)?.departureLocation ||
@@ -5216,17 +5220,15 @@ export const Reservations: CollectionConfig = {
             return sum + Math.max(0, Math.round(Number(payment?.amount || 0)))
           }, 0)
 
-          const nextStatus =
-            totalPrice > 0 && Math.round(paidTotal) >= Math.round(totalPrice)
-              ? 'confirmed'
-              : 'confirmed_balance_due'
+          const currentStatus = String((reservation as any).status || 'pending')
+          const balanceDue = Math.max(0, Math.round(totalPrice - paidTotal))
+          const isFullyPaid = totalPrice > 0 && Math.round(paidTotal) >= Math.round(totalPrice)
 
           const updatedDoc = await req.payload.update({
             collection: 'reservations',
             id,
             data: {
               payments: updatedPayments,
-              status: nextStatus,
               paymentMethod: getPaymentMethodForSchedule(updatedPayments),
               paymentsUpdateSource: 'payment-manager',
             } as any,
@@ -5237,6 +5239,10 @@ export const Reservations: CollectionConfig = {
               skipBalancePaymentLink: true,
               skipFullPaymentCoverageValidation: true,
               allowPartialPaymentSchedule: true,
+              skipReservationStatusEmails: true,
+              skipCustomerEmails: true,
+              skipAdminEmails: true,
+              manualPaymentReconciliation: true,
             },
           })
 
@@ -5251,7 +5257,9 @@ export const Reservations: CollectionConfig = {
             supersededIndexes,
             paidTotal,
             totalPrice,
-            status: nextStatus,
+            balanceDue,
+            isFullyPaid,
+            status: currentStatus,
             mamoCharge,
           })
         } catch (error) {
@@ -5503,17 +5511,15 @@ export const Reservations: CollectionConfig = {
             return sum + Math.max(0, Math.round(Number(payment?.amount || 0)))
           }, 0)
 
-          const nextStatus =
-            totalPrice > 0 && Math.round(paidTotal) >= Math.round(totalPrice)
-              ? 'confirmed'
-              : 'confirmed_balance_due'
+          const currentStatus = String((reservation as any).status || 'pending')
+          const balanceDue = Math.max(0, Math.round(totalPrice - paidTotal))
+          const isFullyPaid = totalPrice > 0 && Math.round(paidTotal) >= Math.round(totalPrice)
 
           const updatedDoc = await req.payload.update({
             collection: 'reservations',
             id,
             data: {
               payments,
-              status: nextStatus,
               paymentsUpdateSource: 'payment-manager',
             } as any,
             overrideAccess: true,
@@ -5523,6 +5529,10 @@ export const Reservations: CollectionConfig = {
               skipBalancePaymentLink: true,
               skipFullPaymentCoverageValidation: true,
               allowPartialPaymentSchedule: true,
+              skipReservationStatusEmails: true,
+              skipCustomerEmails: true,
+              skipAdminEmails: true,
+              manualPaymentReconciliation: true,
             },
           })
 
@@ -5536,7 +5546,9 @@ export const Reservations: CollectionConfig = {
             savedPayments,
             paidTotal,
             totalPrice,
-            status: nextStatus,
+            balanceDue,
+            isFullyPaid,
+            status: currentStatus,
             mamoCharge,
             capturedTotal,
           })
@@ -6922,6 +6934,16 @@ export const Reservations: CollectionConfig = {
           })
         } catch (paymentReconciliationError) {
           console.error('Payment reconciliation after total change failed:', paymentReconciliationError)
+        }
+
+        const shouldSuppressReservationEmails =
+          req?.context?.skipReservationStatusEmails === true ||
+          req?.context?.skipCustomerEmails === true ||
+          req?.context?.skipAdminEmails === true ||
+          req?.context?.manualPaymentReconciliation === true
+
+        if (shouldSuppressReservationEmails) {
+          return doc
         }
 
         // Check if we need to process status changes
