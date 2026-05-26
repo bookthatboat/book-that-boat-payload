@@ -4305,6 +4305,10 @@ const calculateReservationTotalForSave = async ({
   const totalDiscount = Math.min(subtotalBeforeDiscount, couponDiscount + customDiscount)
 
   data.totalPrice = Math.max(0, Math.round(subtotalBeforeDiscount - totalDiscount))
+  const reservationDeskFinalTotal = Number((req as any)?.context?.reservationDeskFinalTotal)
+  if (Number.isFinite(reservationDeskFinalTotal)) {
+    data.totalPrice = Math.max(0, Math.round(reservationDeskFinalTotal))
+  }
 
   if (couponCode) {
     data.couponCode = couponCode

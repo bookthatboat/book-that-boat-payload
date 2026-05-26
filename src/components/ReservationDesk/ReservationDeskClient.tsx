@@ -42,6 +42,13 @@ type BookingRow = {
   totalPrice: number
   isPast: boolean
   adminUrl: string
+  specialRequests?: string
+  meetingPointName?: string
+  meetingPointPin?: string
+  contactPersonName?: string
+  contactPersonNumber?: string
+  parkingLocationName?: string
+  parkingLocationPin?: string
 }
 
 type PaymentRow = {
@@ -115,6 +122,12 @@ const emptyForm = {
   countryCode: '+971',
   guestPhone: '',
   specialRequests: '',
+  meetingPointName: '',
+  meetingPointPin: '',
+  contactPersonName: '',
+  contactPersonNumber: '',
+  parkingLocationName: '',
+  parkingLocationPin: '',
   couponId: '',
   couponCode: '',
   customDiscountAmount: 0,
@@ -273,6 +286,7 @@ export default function ReservationDeskClient() {
     if (targetStep <= step) return true
     if (targetStep >= 1 && (!form.date || !form.startTime || !form.duration || !form.guests || !form.boatId)) return false
     if (targetStep >= 2 && (!form.guestName || !form.guestEmail || !form.countryCode || !form.guestPhone || !isEmail(form.guestEmail))) return false
+    if (targetStep >= 3 && (!form.meetingPointName || !form.meetingPointPin || !form.contactPersonName || !form.contactPersonNumber || !form.parkingLocationName || !form.parkingLocationPin)) return false
     return true
   }
 
@@ -309,6 +323,13 @@ export default function ReservationDeskClient() {
       guestEmail: booking.guestEmail || '',
       countryCode: booking.countryCode || '+971',
       guestPhone: booking.guestPhone || '',
+      specialRequests: booking.specialRequests || '',
+      meetingPointName: booking.meetingPointName || '',
+      meetingPointPin: booking.meetingPointPin || '',
+      contactPersonName: booking.contactPersonName || '',
+      contactPersonNumber: booking.contactPersonNumber || '',
+      parkingLocationName: booking.parkingLocationName || '',
+      parkingLocationPin: booking.parkingLocationPin || '',
       status: booking.status || 'pending',
     }))
     setView('form')
@@ -331,6 +352,13 @@ export default function ReservationDeskClient() {
       }
       if (!isEmail(form.guestEmail)) {
         setError('Enter a valid email address.')
+        return
+      }
+    }
+
+    if (step === 2) {
+      if (!form.meetingPointName || !form.meetingPointPin || !form.contactPersonName || !form.contactPersonNumber || !form.parkingLocationName || !form.parkingLocationPin) {
+        setError('Please complete the operations details before continuing.')
         return
       }
     }
@@ -490,6 +518,22 @@ export default function ReservationDeskClient() {
 
               {step === 2 ? (
                 <div>
+                  <h2>Operations</h2>
+                  <div className="reservation-desk__grid">
+                    <label>Meeting point name *<input required value={form.meetingPointName} onChange={(event) => update('meetingPointName', event.target.value)} placeholder="Dubai Harbour Gate P1" /></label>
+                    <label>Meeting point pin *<input required value={form.meetingPointPin} onChange={(event) => update('meetingPointPin', event.target.value)} placeholder="Google Maps pin or URL" /></label>
+                    <label>Contact person name *<input required value={form.contactPersonName} onChange={(event) => update('contactPersonName', event.target.value)} placeholder="Captain or coordinator name" /></label>
+                    <label>Contact person number *<input required value={form.contactPersonNumber} onChange={(event) => update('contactPersonNumber', event.target.value)} placeholder="+971..." /></label>
+                    <label>Car parking location *<input required value={form.parkingLocationName} onChange={(event) => update('parkingLocationName', event.target.value)} placeholder="Visitor parking or valet point" /></label>
+                    <label>Car parking pin *<input required value={form.parkingLocationPin} onChange={(event) => update('parkingLocationPin', event.target.value)} placeholder="Google Maps pin or URL" /></label>
+                  </div>
+                  <button type="button" onClick={() => setStep(1)}>Back</button>
+                  <button type="button" onClick={() => validateStep(3)}>Continue</button>
+                </div>
+              ) : null}
+
+              {step === 3 ? (
+                <div>
                   <h2>Extras</h2>
                   <label className="btb-reservation-desk__filter">Filter by type
                     <select value={extraCategory} onChange={(event) => setExtraCategory(event.target.value)}>
@@ -518,7 +562,7 @@ export default function ReservationDeskClient() {
                     </div>
                   ))}
                   <button type="button" onClick={() => setOtherExtras((current) => [...current, { description: '', quantity: 1, price: 0 }])}>Add custom extra</button>
-                  <button type="button" onClick={() => setStep(3)}>Continue</button>
+                  <button type="button" onClick={() => validateStep(4)}>Continue</button>
                 </div>
               ) : null}
 
@@ -593,11 +637,11 @@ export default function ReservationDeskClient() {
                     </div>
                   ))}
 
-                  <button type="button" onClick={() => setStep(4)}>Review</button>
+                  <button type="button" onClick={() => setStep(5)}>Review</button>
                 </div>
               ) : null}
 
-              {step === 4 ? (
+              {step === 5 ? (
                 <div>
                   <h2>Review</h2>
                   <div className="btb-reservation-desk__review">
@@ -605,6 +649,9 @@ export default function ReservationDeskClient() {
                     <p><strong>Supplier:</strong> {selectedBoat?.supplierName}</p>
                     <p><strong>Trip:</strong> {form.date} at {form.startTime} for {form.duration}h</p>
                     <p><strong>Guest:</strong> {form.guestName} - {form.countryCode} {form.guestPhone}</p>
+                    <p><strong>Meeting point:</strong> {form.meetingPointName}</p>
+                    <p><strong>Parking:</strong> {form.parkingLocationName}</p>
+                    <p><strong>Operations contact:</strong> {form.contactPersonName} - {form.contactPersonNumber}</p>
                     <p><strong>Email:</strong> {form.guestEmail}</p>
                     <p><strong>Total:</strong> {formatAED(preview?.totalPrice || 0)}</p>
                   </div>
