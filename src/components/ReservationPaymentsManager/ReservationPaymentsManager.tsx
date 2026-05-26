@@ -288,6 +288,19 @@ const isActive = (payment: PaymentRow) => {
   return payment.status === 'scheduled' || payment.status === 'pending' || payment.status === 'completed'
 }
 
+const getPaymentDeleteKey = (payment?: Partial<PaymentRow> | null): string => {
+  if (!payment) return ''
+
+  return String(
+    payment.id ||
+      payment.paymentLinkId ||
+      payment.paymentLink ||
+      payment.actualMamoChargeId ||
+      payment.actualPaymentLinkId ||
+      `${payment.amount || 0}:${payment.method || ''}:${payment.status || ''}:${payment.date || ''}:${payment.paidAt || ''}`,
+  ).trim()
+}
+
 const styles = {
   wrap: {
     marginBottom: 24,
@@ -440,6 +453,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
 
   const [hasHydratedPaymentsFromServer, setHasHydratedPaymentsFromServer] = useState(false)
   const latestPaymentsRef = useRef<PaymentRow[]>(localPayments)
+  const deletedPaymentKeysRef = useRef<Set<string>>(new Set())
   const hasUserEditedPaymentsRef = useRef(false)
 
   useEffect(() => {
@@ -733,6 +747,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
         body: JSON.stringify({
           payments: paymentsToSave,
           paymentMethod: getPaymentMethodForSchedule(paymentsToSave),
+          deletedPaymentKeys: Array.from(deletedPaymentKeysRef.current),
         }),
       })
 
@@ -793,6 +808,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
       // Update local render state first so the table does not disappear even if Payload's
       // internal form state is stale, empty, or remounted after the API save.
       latestPaymentsRef.current = paymentsToRender
+      deletedPaymentKeysRef.current.clear()
       setLocalPayments(paymentsToRender)
       setPaymentsValue(paymentsToRender)
       writeSavedPaymentsToSession(reservationId, paymentsToRender)
@@ -932,7 +948,16 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
       if (!confirmed) return
     }
 
-    updatePayments(recalculatedPayments.filter((_, paymentIndex) => paymentIndex !== index))
+    const deleteKey = getPaymentDeleteKey(payment)
+
+    if (deleteKey) {
+      deletedPaymentKeysRef.current.add(deleteKey)
+    }
+
+    const nextPayments = recalculatedPayments.filter((_, paymentIndex) => paymentIndex !== index)
+
+    latestPaymentsRef.current = nextPayments
+    updatePayments(nextPayments)
   }
 
   const toggleReconcileRow = (index: number) => {
