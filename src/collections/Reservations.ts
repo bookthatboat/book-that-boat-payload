@@ -3261,7 +3261,10 @@ const validateReservationPaymentSchedule = ({
     }
   })
 
-  const totalPrice = Number(data?.totalPrice ?? originalDoc?.totalPrice ?? 0)
+  const reservationDeskFinalTotal = Number(context?.reservationDeskFinalTotal)
+  const totalPrice = Number.isFinite(reservationDeskFinalTotal)
+    ? reservationDeskFinalTotal
+    : Number(data?.totalPrice ?? originalDoc?.totalPrice ?? 0)
   const nextStatus = data?.status || originalDoc?.status
 
   const mustHaveFullSchedule = ['awaiting payment', 'confirmed_balance_due', 'confirmed'].includes(nextStatus)
