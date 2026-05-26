@@ -3263,17 +3263,22 @@ const validateReservationPaymentSchedule = ({
 
   const reservationDeskFinalTotal = Number(context?.reservationDeskFinalTotal)
   const nextStatus = data?.status || originalDoc?.status
+  const isPaymentManagerSave = data?.paymentsUpdateSource === 'payment-manager'
   const isReservationDeskAwaitingPayment =
     context?.reservationDeskForceAwaitingPaymentEmail === true &&
     nextStatus === 'awaiting payment'
+  const shouldUsePaymentScheduleTotal =
+    nextStatus === 'awaiting payment' &&
+    activeScheduledTotal > 0 &&
+    (isReservationDeskAwaitingPayment || isPaymentManagerSave)
 
   const totalPrice = Number.isFinite(reservationDeskFinalTotal)
     ? reservationDeskFinalTotal
-    : isReservationDeskAwaitingPayment && activeScheduledTotal > 0
+    : shouldUsePaymentScheduleTotal
       ? activeScheduledTotal
       : Number(data?.totalPrice ?? originalDoc?.totalPrice ?? 0)
 
-  if (isReservationDeskAwaitingPayment && activeScheduledTotal > 0) {
+  if (shouldUsePaymentScheduleTotal) {
     data.totalPrice = Math.max(0, Math.round(totalPrice))
   }
 
@@ -3297,8 +3302,6 @@ const validateReservationPaymentSchedule = ({
       ).toLocaleString()}, reservation total is AED ${Math.round(totalPrice).toLocaleString()}.`,
     )
   }
-
-  const isPaymentManagerSave = data?.paymentsUpdateSource === 'payment-manager'
 
   if (data?.paymentMethod === 'full' && !isPaymentManagerSave) {
     const activeRows = payments.filter(isPaymentActiveForSchedule)
