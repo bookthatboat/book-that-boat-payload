@@ -451,6 +451,7 @@ export const reservationDeskEndpoints: Endpoint[] = [
       const statusUpdateData = {
         status,
         ...(paymentScheduleTotal > 0 ? { totalPrice: paymentScheduleTotal } : {}),
+        ...(status === 'awaiting payment' ? { paymentsUpdateSource: 'payment-manager' } : {}),
       } as any
 
       const reservationDeskStatusContext = status === 'awaiting payment'
