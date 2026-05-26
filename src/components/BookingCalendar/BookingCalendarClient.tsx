@@ -218,6 +218,10 @@ export const BookingCalendarClient = ({ bookings }: Props) => {
 
         <div className="btb-booking-calendar__stats">
           <div>
+            <span>Reservation Desk</span>
+            <a href="/admin/reservation-desk">Open desk</a>
+          </div>
+          <div>
             <span>Upcoming bookings</span>
             <strong>{filteredBookings.length}</strong>
           </div>
