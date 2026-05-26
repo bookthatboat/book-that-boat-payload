@@ -7194,15 +7194,18 @@ export const Reservations: CollectionConfig = {
           // The payment schedule is now the source of truth. Legacy top-level paymentLink/paymentLinkId
           // are only mirrored from the first active Mamo Pay row for backwards compatibility.
           if (shouldProcessPaymentLink) {
-            try {
-              const activatedSchedule = await activatePaymentScheduleForReservation({
-                reservation: doc,
-                boat,
-                user,
-                payload,
-              })
+            const activatedSchedule = await activatePaymentScheduleForReservation({
+              reservation: doc,
+              boat,
+              user,
+              payload,
+            })
 
-              startPaymentPolling(payload)
+            if (!activatedSchedule.paymentLink) {
+              throw new Error('Mamo Pay link was not created for this awaiting-payment reservation.')
+            }
+
+            startPaymentPolling(payload)
 
               if (user.email) {
                 await sendEmail(
@@ -7232,10 +7235,7 @@ export const Reservations: CollectionConfig = {
               doc.paymentLink = activatedSchedule.paymentLink
               doc.paymentLinkId = activatedSchedule.paymentLinkId
 
-              return doc
-            } catch (error) {
-              console.error('Error activating payment schedule:', error)
-            }
+            return doc
           }
 
           // Send emails only for status changes that are NOT payment-related
