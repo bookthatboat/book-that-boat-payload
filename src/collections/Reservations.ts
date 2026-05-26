@@ -3042,6 +3042,32 @@ const hasManagedPaymentSchedule = (payments: any[] | undefined) => {
   })
 }
 
+const shouldSupersedePendingMamoRowForManualPayment = ({
+  payment,
+  manualBaseAmount,
+  amountRemainingToCover,
+}: {
+  payment: any
+  manualBaseAmount: number
+  amountRemainingToCover: number
+}) => {
+  const status = String(payment?.status || '')
+  const method = String(payment?.method || '')
+
+  if (!['scheduled', 'pending'].includes(status)) return false
+  if (method !== 'Mamo Pay') return false
+
+  const amount = Math.max(0, Math.round(Number(payment?.amount || 0)))
+  if (amount <= 0) return false
+
+  // Real bookings can differ slightly because the Mamo gross amount is reverse-calculated
+  // and old schedule rows may have been AED 249 while the captured base is AED 250.
+  const tolerance = 2
+
+  return amount <= amountRemainingToCover + tolerance || Math.abs(amount - manualBaseAmount) <= tolerance
+}
+
+
 const getPaymentMethodForSchedule = (payments: any[] | undefined) => {
   return hasManagedPaymentSchedule(payments) ? 'scheduled' : 'full'
 }
@@ -5139,24 +5165,25 @@ export const Reservations: CollectionConfig = {
           const supersededIndexes: number[] = []
 
           const updatedPayments = payments.map((payment: any, index: number) => {
-            const status = String(payment?.status || '')
             const amount = Math.max(0, Math.round(Number(payment?.amount || 0)))
 
-            const canSupersede =
-              amountRemainingToCover > 0 &&
-              amount > 0 &&
-              ['scheduled', 'pending'].includes(status)
+            const canSupersede = shouldSupersedePendingMamoRowForManualPayment({
+              payment,
+              manualBaseAmount: baseAmount,
+              amountRemainingToCover,
+            })
 
-            if (!canSupersede || amount > amountRemainingToCover) {
+            if (!canSupersede) {
               return payment
             }
 
-            amountRemainingToCover -= amount
+            amountRemainingToCover = Math.max(0, amountRemainingToCover - amount)
             supersededIndexes.push(index)
 
             return {
               ...payment,
               status: 'superseded',
+              installmentStage: payment?.installmentStage || 'paid',
               notes: [
                 payment?.notes || '',
                 `Superseded by manual Mamo payment ${fetchedMamoChargeId} received on ${paidAt}.`,
