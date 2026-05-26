@@ -569,13 +569,20 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
       return
     }
 
+    // Once the admin starts editing payment rows, local state becomes the source
+    // of truth until Save Schedule or server hydration explicitly resets the edit flag.
+    // Payload Admin can re-emit stale non-empty form state after select/date/input changes,
+    // especially on mobile, which would otherwise revert edits such as Mamo Pay -> Cash.
+    if (hasUserEditedPaymentsRef.current) {
+      return
+    }
+
     // After hydration, still ignore stale empty form-state updates if we already
     // have rows locally and the user has not intentionally cleared/edited them.
     if (
       hasHydratedPaymentsFromServer &&
       nextPayments.length === 0 &&
-      latestPaymentsRef.current.length > 0 &&
-      !hasUserEditedPaymentsRef.current
+      latestPaymentsRef.current.length > 0
     ) {
       return
     }
@@ -990,6 +997,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
       setPaymentsValue(savedPayments)
       writeSavedPaymentsToSession(reservationId, savedPayments)
       dispatchPaymentsUpdatedEvent(reservationId, savedPayments)
+      hasUserEditedPaymentsRef.current = false
 
       resetReconciliationForm()
       setReconcileOpen(false)
