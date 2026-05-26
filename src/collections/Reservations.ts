@@ -5607,6 +5607,11 @@ export const Reservations: CollectionConfig = {
             overrideAccess: true,
             context: {
               paymentsUpdateSource: 'payment-manager',
+              skipPaymentReconciliation: true,
+              skipBalancePaymentLink: true,
+              skipFullPaymentCoverageValidation: true,
+              allowPartialPaymentSchedule: true,
+              preserveSubmittedPaymentRows: true,
             },
           })
 
@@ -6926,14 +6931,16 @@ export const Reservations: CollectionConfig = {
           // don't throw — keep reservation flow stable
         }
 
-        try {
-          await reconcileReservationPaymentsAfterTotalChange({
-            doc,
-            previousDoc,
-            req,
-          })
-        } catch (paymentReconciliationError) {
-          console.error('Payment reconciliation after total change failed:', paymentReconciliationError)
+        if (req?.context?.skipPaymentReconciliation !== true) {
+          try {
+            await reconcileReservationPaymentsAfterTotalChange({
+              doc,
+              previousDoc,
+              req,
+            })
+          } catch (paymentReconciliationError) {
+            console.error('Payment reconciliation after total change failed:', paymentReconciliationError)
+          }
         }
 
         const shouldSuppressReservationEmails =
