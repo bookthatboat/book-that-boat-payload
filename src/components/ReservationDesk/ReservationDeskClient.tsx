@@ -291,6 +291,14 @@ export default function ReservationDeskClient() {
   }
 
   const updateStatus = async (booking: BookingRow, status: string) => {
+    if (status === booking.status) return
+
+    const confirmed = window.confirm(
+      `Are you sure you want to change booking ${booking.transactionId || booking.id} from "${booking.status}" to "${status}"?`,
+    )
+
+    if (!confirmed) return
+
     setError('')
     const response = await fetch('/api/reservation-desk/status', {
       method: 'PATCH',
@@ -423,6 +431,22 @@ export default function ReservationDeskClient() {
       {error ? <div className="btb-reservation-desk__alert is-error">{error}</div> : null}
       {message ? <div className="btb-reservation-desk__alert is-success">{message}</div> : null}
 
+      {created && view === 'form' ? (
+        <div className="btb-reservation-desk__alert is-success">
+          <strong>Reservation saved.</strong>
+          <button
+            type="button"
+            onClick={() => {
+              setCreated(null)
+              setView('list')
+              setStep(0)
+            }}
+          >
+            Back to Reservation Desk
+          </button>
+        </div>
+      ) : null}
+
       {view === 'list' ? (
         <section className="btb-reservation-desk__panel">
           <h2>Bookings</h2>
@@ -452,7 +476,7 @@ export default function ReservationDeskClient() {
       ) : (
         <>
           <nav className="btb-reservation-desk__steps">
-            {['Trip & Yacht', 'Guest', 'Extras', 'Price', 'Review'].map((label, index) => (
+            {['Trip & Yacht', 'Guest', 'Operations', 'Extras', 'Price', 'Review'].map((label, index) => (
               <button
                 key={label}
                 type="button"
@@ -566,7 +590,7 @@ export default function ReservationDeskClient() {
                 </div>
               ) : null}
 
-              {step === 3 ? (
+              {step === 4 ? (
                 <div className="btb-reservation-desk__form">
                   <h2>Price & Discounts</h2>
 
@@ -637,7 +661,7 @@ export default function ReservationDeskClient() {
                     </div>
                   ))}
 
-                  <button type="button" onClick={() => setStep(5)}>Review</button>
+                  <button type="button" onClick={() => validateStep(5)}>Review</button>
                 </div>
               ) : null}
 
