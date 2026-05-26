@@ -6,6 +6,9 @@ export default function BookingCalendarLink() {
       <a href="/admin/booking-calendar">
         Booking Calendar
       </a>
+      <a href="/admin/reservation-desk">
+        Reservation Desk
+      </a>
     </div>
   )
 }
