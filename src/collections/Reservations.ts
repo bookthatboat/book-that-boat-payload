@@ -5621,7 +5621,45 @@ export const Reservations: CollectionConfig = {
               ? await req.json().catch(() => null)
               : (req as any).body || null
 
-          const payments = Array.isArray(body?.payments) ? body.payments : []
+          const rawPayments = Array.isArray(body?.payments) ? body.payments : []
+          const normalisedNow = new Date().toISOString()
+
+          const payments = rawPayments.map((payment: any, index: number) => {
+            const amount = Math.max(0, Math.round(Number(payment?.amount || 0)))
+            const method = payment?.method || 'Mamo Pay'
+            const status = payment?.status || 'scheduled'
+            const isReceived = status === 'completed'
+            const isRefunded = status === 'refunded'
+
+            const feeFields = getPaymentFeeFields({
+              amount,
+              method,
+            })
+
+            return {
+              ...payment,
+              id: payment?.id || `payment-${Date.now()}-${index}`,
+              amount,
+              method,
+              status,
+              paidAt: isReceived || isRefunded ? payment?.paidAt || normalisedNow : '',
+              installmentStage: isReceived ? 'paid' : payment?.installmentStage || 'ready_to_be_installed',
+              ...feeFields,
+            }
+          })
+
+          console.info('[save-payments] submitted rows', {
+            reservationId: id,
+            rows: payments.map((payment: any) => ({
+              id: payment?.id,
+              amount: payment?.amount,
+              method: payment?.method,
+              status: payment?.status,
+              paidAt: payment?.paidAt,
+              installmentStage: payment?.installmentStage,
+            })),
+          })
+
           const deletedPaymentKeys = new Set(
             Array.isArray(body?.deletedPaymentKeys)
               ? body.deletedPaymentKeys.map((key: unknown) => String(key || '').trim()).filter(Boolean)
