@@ -377,6 +377,16 @@ const getReservationPayload = ({ body, preview }: { body: any; preview: any }) =
   }
 }
 
+const getReservationDeskPaymentScheduleTotal = (reservation: any) => {
+  const payments = Array.isArray(reservation?.payments) ? reservation.payments : []
+
+  return payments.reduce((sum: number, payment: any) => {
+    const status = String(payment?.status || '').trim()
+    if (!['scheduled', 'pending', 'completed'].includes(status)) return sum
+    return sum + Math.max(0, Number(payment?.amount || 0))
+  }, 0)
+}
+
 export const reservationDeskEndpoints: Endpoint[] = [
   {
     path: '/reservation-desk/options',
@@ -427,15 +437,34 @@ export const reservationDeskEndpoints: Endpoint[] = [
         return Response.json({ message: 'Invalid reservation or status.' }, { status: 400 })
       }
 
+      const existingForStatusUpdate = await req.payload.findByID({
+        collection: 'reservations',
+        id,
+        depth: 0,
+        overrideAccess: true,
+      })
+
+      const paymentScheduleTotal = status === 'awaiting payment'
+        ? getReservationDeskPaymentScheduleTotal(existingForStatusUpdate)
+        : 0
+
+      const statusUpdateData = {
+        status,
+        ...(paymentScheduleTotal > 0 ? { totalPrice: paymentScheduleTotal } : {}),
+      } as any
+
       try {
         const updated = await req.payload.update({
           collection: 'reservations',
           id,
-          data: { status } as any,
+          data: statusUpdateData,
           user: req.user,
           overrideAccess: true,
           context: status === 'awaiting payment'
-            ? { reservationDeskForceAwaitingPaymentEmail: true }
+            ? {
+                reservationDeskForceAwaitingPaymentEmail: true,
+                ...(paymentScheduleTotal > 0 ? { reservationDeskFinalTotal: paymentScheduleTotal } : {}),
+              }
             : undefined,
         })
 
