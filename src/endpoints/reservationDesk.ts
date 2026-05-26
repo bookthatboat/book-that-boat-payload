@@ -453,6 +453,21 @@ export const reservationDeskEndpoints: Endpoint[] = [
         ...(paymentScheduleTotal > 0 ? { totalPrice: paymentScheduleTotal } : {}),
       } as any
 
+      const reservationDeskStatusContext = status === 'awaiting payment'
+        ? {
+            reservationDeskForceAwaitingPaymentEmail: true,
+            skipFullPaymentCoverageValidation: true,
+            ...(paymentScheduleTotal > 0 ? { reservationDeskFinalTotal: paymentScheduleTotal } : {}),
+          }
+        : undefined
+
+      if (reservationDeskStatusContext) {
+        ;(req as any).context = {
+          ...((req as any).context || {}),
+          ...reservationDeskStatusContext,
+        }
+      }
+
       try {
         const updated = await req.payload.update({
           collection: 'reservations',
@@ -460,12 +475,7 @@ export const reservationDeskEndpoints: Endpoint[] = [
           data: statusUpdateData,
           user: req.user,
           overrideAccess: true,
-          context: status === 'awaiting payment'
-            ? {
-                reservationDeskForceAwaitingPaymentEmail: true,
-                ...(paymentScheduleTotal > 0 ? { reservationDeskFinalTotal: paymentScheduleTotal } : {}),
-              }
-            : undefined,
+          context: reservationDeskStatusContext,
         })
 
         const freshBookingAfterStatusUpdate = await req.payload.findByID({

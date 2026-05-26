@@ -3262,10 +3262,20 @@ const validateReservationPaymentSchedule = ({
   })
 
   const reservationDeskFinalTotal = Number(context?.reservationDeskFinalTotal)
+  const nextStatus = data?.status || originalDoc?.status
+  const isReservationDeskAwaitingPayment =
+    context?.reservationDeskForceAwaitingPaymentEmail === true &&
+    nextStatus === 'awaiting payment'
+
   const totalPrice = Number.isFinite(reservationDeskFinalTotal)
     ? reservationDeskFinalTotal
-    : Number(data?.totalPrice ?? originalDoc?.totalPrice ?? 0)
-  const nextStatus = data?.status || originalDoc?.status
+    : isReservationDeskAwaitingPayment && activeScheduledTotal > 0
+      ? activeScheduledTotal
+      : Number(data?.totalPrice ?? originalDoc?.totalPrice ?? 0)
+
+  if (isReservationDeskAwaitingPayment && activeScheduledTotal > 0) {
+    data.totalPrice = Math.max(0, Math.round(totalPrice))
+  }
 
   const mustHaveFullSchedule = ['awaiting payment', 'confirmed_balance_due', 'confirmed'].includes(nextStatus)
 
