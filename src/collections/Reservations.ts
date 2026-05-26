@@ -5729,6 +5729,12 @@ export const Reservations: CollectionConfig = {
               ? [...payments, ...protectedExistingPaymentsToRestore]
               : payments
 
+          // Payment Schedule Manager saves are explicit admin edits.
+          // The submitted rows must be treated as the source of truth; do not run
+          // automatic activation/reconciliation afterwards because that can convert
+          // Cash/Bank rows marked as Received back to Awaiting Payment.
+          const preserveSubmittedPaymentRows = true
+
           const updatedDoc = await req.payload.update({
             collection: 'reservations',
             id,
@@ -5744,7 +5750,7 @@ export const Reservations: CollectionConfig = {
               skipBalancePaymentLink: true,
               skipFullPaymentCoverageValidation: true,
               allowPartialPaymentSchedule: true,
-              preserveSubmittedPaymentRows: true,
+              preserveSubmittedPaymentRows,
             },
           })
 
@@ -5800,11 +5806,8 @@ export const Reservations: CollectionConfig = {
           const now = new Date()
           const today = startOfUtcDay(now)
 
-          const shouldPreserveSubmittedPaymentRows =
-            req?.context?.preserveSubmittedPaymentRows === true
-
           const shouldRunPaymentActivation =
-            !shouldPreserveSubmittedPaymentRows &&
+            !preserveSubmittedPaymentRows &&
             savedPayments.some((payment: any) => {
               const status = payment?.status || ''
               const method = payment?.method || 'Mamo Pay'
