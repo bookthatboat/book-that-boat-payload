@@ -407,7 +407,7 @@ export const reservationDeskEndpoints: Endpoint[] = [
         collection: 'reservations',
         depth: 2,
         limit: 250,
-        sort: '-startTime',
+        sort: '-createdAt',
         overrideAccess: true,
       })
 
@@ -427,14 +427,19 @@ export const reservationDeskEndpoints: Endpoint[] = [
         return Response.json({ message: 'Invalid reservation or status.' }, { status: 400 })
       }
 
-      const updated = await req.payload.update({
-        collection: 'reservations',
-        id,
-        data: { status } as any,
-        overrideAccess: true,
-      })
+      try {
+        const updated = await req.payload.update({
+          collection: 'reservations',
+          id,
+          data: { status } as any,
+          overrideAccess: true,
+        })
 
-      return Response.json({ booking: mapReservation(updated) })
+        return Response.json({ booking: mapReservation(updated) })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Could not update status'
+        return Response.json({ message: `Could not update status: ${message}` }, { status: 400 })
+      }
     },
   },
   {

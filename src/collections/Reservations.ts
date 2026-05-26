@@ -2238,9 +2238,10 @@ const getCreativeEmailTemplate = (
         'Dubai'
 
       const requestId = reservation.transactionId || reservation.id
-      const paymentLink = (reservation.paymentLink || '#').trim()
+      let paymentLink = (reservation.paymentLink || '#').trim()
 
       const paymentRequestRow = getPaymentRequestRowForEmail(reservation)
+      paymentLink = String(paymentRequestRow?.paymentLink || paymentLink || '#').trim()
       const paymentRequestAmount = Number(
         paymentRequestRow?.customerPayableAmount ||
           paymentRequestRow?.amount ||
