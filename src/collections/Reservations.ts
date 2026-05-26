@@ -2348,7 +2348,7 @@ const getCreativeEmailTemplate = (
         
                 <div style="text-align:center;margin:18px 0 6px 0;">
                   <a
-                    href="${paymentLink || 'https://api.whatsapp.com/send?phone=97143408933&text=Hi%20Book%20That%20Boat!%20Can%20you%20help%20me%20with%20my%20payment%20link?'}"
+                    href="${paymentLink || '#'}"
                     style="display:inline-block;padding:12px 18px;border-radius:12px;background:#ff9800;color:#ffffff;text-decoration:none;font-size:14px;font-weight:800;"
                   >
                     Complete Payment Now
@@ -3387,16 +3387,23 @@ const activatePaymentScheduleForReservation = async ({
   let firstPaymentLink = ''
   let firstPaymentLinkId = ''
 
+  let activatedFirstScheduledPayment = false
+
   for (let index = 0; index < payments.length; index++) {
     const payment = payments[index]
     if (!payment) continue
 
     const status = payment.status || ''
     const method = payment.method || reservation.method || 'Mamo Pay'
+    const shouldActivateScheduledPayment = status === 'scheduled' && !activatedFirstScheduledPayment
 
-    // Only activate rows that the admin has marked as "Awaiting Payment".
-    // Scheduled rows remain scheduled until activateDueScheduledPayments picks them up.
-    if (status !== 'pending') continue
+    // When a Reservation Desk booking moves to Awaiting Payment, payment rows are usually still scheduled.
+    // Activate the first scheduled row immediately so the customer email has a real Mamo Pay link.
+    if (status !== 'pending' && !shouldActivateScheduledPayment) continue
+
+    if (shouldActivateScheduledPayment) {
+      activatedFirstScheduledPayment = true
+    }
 
     if (method === 'Mamo Pay') {
       if (payment.paymentLinkId && payment.paymentLink) {
