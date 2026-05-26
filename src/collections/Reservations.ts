@@ -7274,6 +7274,13 @@ export const Reservations: CollectionConfig = {
           }
         } catch (error: unknown) {
           console.error('Error in afterChange hook:', error)
+
+          if (
+            doc.status === 'awaiting payment' &&
+            req?.context?.reservationDeskForceAwaitingPaymentEmail === true
+          ) {
+            throw error
+          }
         }
       },
     ],
