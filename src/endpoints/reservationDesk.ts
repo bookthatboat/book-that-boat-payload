@@ -434,6 +434,9 @@ export const reservationDeskEndpoints: Endpoint[] = [
           data: { status } as any,
           user: req.user,
           overrideAccess: true,
+          context: status === 'awaiting payment'
+            ? { reservationDeskForceAwaitingPaymentEmail: true }
+            : undefined,
         })
 
         const freshBookingAfterStatusUpdate = await req.payload.findByID({
