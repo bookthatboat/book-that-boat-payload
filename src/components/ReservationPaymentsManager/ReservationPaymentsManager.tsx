@@ -940,12 +940,17 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
   const removePayment = (index: number) => {
     const payment = recalculatedPayments[index]
 
-    if (payment?.status === 'completed') {
-      const confirmed = window.confirm(
-        'This payment is marked as received. Instead of deleting it, consider changing the status to Refunded. Delete anyway?',
-      )
+    const isReceivedOrReconciledPayment =
+      payment?.status === 'completed' ||
+      Boolean(payment?.actualMamoChargeId) ||
+      Boolean(payment?.reconciledAt) ||
+      Boolean(payment?.reconciliationSource)
 
-      if (!confirmed) return
+    if (isReceivedOrReconciledPayment) {
+      setSaveError(
+        'Received/reconciled payments cannot be deleted from the schedule. Use a refund/void workflow instead, or remove the unused pending/scheduled row.',
+      )
+      return
     }
 
     const deleteKey = getPaymentDeleteKey(payment)
