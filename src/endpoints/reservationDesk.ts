@@ -327,6 +327,12 @@ const mapReservation = (reservation: any) => {
     status: reservation.status || 'pending',
     startTime: reservation.startTime || '',
     endTime: reservation.endTime || '',
+    meetingPointName: reservation.meetingPointName || '',
+    meetingPointPin: reservation.meetingPointPin || '',
+    contactPersonName: reservation.contactPersonName || '',
+    contactPersonNumber: reservation.contactPersonNumber || '',
+    parkingLocationName: reservation.parkingLocationName || '',
+    parkingLocationPin: reservation.parkingLocationPin || '',
     totalPrice: toNumber(reservation.totalPrice, 0),
     isPast,
     adminUrl: `/admin/collections/reservations/${reservation.id}`,
@@ -357,6 +363,12 @@ const getReservationPayload = ({ body, preview }: { body: any; preview: any }) =
     coupon: preview.coupon?.id || undefined,
     couponCode: preview.coupon?.code || String(body.couponCode || '').trim().toUpperCase(),
     customDiscountAmount: preview.customDiscount,
+    meetingPointName: String(body.meetingPointName || '').trim(),
+    meetingPointPin: String(body.meetingPointPin || '').trim(),
+    contactPersonName: String(body.contactPersonName || '').trim(),
+    contactPersonNumber: String(body.contactPersonNumber || '').trim(),
+    parkingLocationName: String(body.parkingLocationName || '').trim(),
+    parkingLocationPin: String(body.parkingLocationPin || '').trim(),
     totalPrice: preview.totalPrice,
     method: normalizePaymentMethod(String(body.method || 'Mamo Pay')),
     paymentMethod: payments.length > 1 ? 'scheduled' : 'full',
@@ -497,7 +509,7 @@ export const reservationDeskEndpoints: Endpoint[] = [
         collection: 'reservations',
         data: getReservationPayload({ body, preview }) as any,
         overrideAccess: true,
-        context: { paymentsUpdateSource: 'payment-manager' },
+        context: { paymentsUpdateSource: 'payment-manager', reservationDeskFinalTotal: preview.totalPrice },
       })
 
       return Response.json({
@@ -538,7 +550,7 @@ export const reservationDeskEndpoints: Endpoint[] = [
         id,
         data: getReservationPayload({ body, preview }) as any,
         overrideAccess: true,
-        context: { paymentsUpdateSource: 'payment-manager' },
+        context: { paymentsUpdateSource: 'payment-manager', reservationDeskFinalTotal: preview.totalPrice },
       })
 
       return Response.json({ success: true, reservation: mapReservation(doc) })
