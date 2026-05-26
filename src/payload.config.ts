@@ -23,6 +23,7 @@ import { Reviews } from './collections/Reviews'
 import { Coupons } from './collections/Coupons'
 import { startPaymentPolling } from './collections/Reservations'
 import { Subscribers } from './collections/Subscribers'
+import { reservationDeskEndpoints } from './endpoints/reservationDesk'
 import { aiPlannerEndpoints } from './endpoints/aiPlanner'
 
 const filename = fileURLToPath(import.meta.url)
@@ -80,6 +81,7 @@ export default buildConfig({
   },
 },
   endpoints: [
+    ...reservationDeskEndpoints,
     ...aiPlannerEndpoints,
     {
       path: '/backfill-reservation-suppliers',
