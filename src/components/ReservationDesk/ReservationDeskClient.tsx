@@ -314,30 +314,71 @@ export default function ReservationDeskClient() {
     setBookings((current) => current.map((item) => (item.id === booking.id ? data.booking : item)))
   }
 
+  const normaliseSavedExtraId = (row: any) => {
+    const value = row?.extra || row?.id || row?.extraId
+    return typeof value === 'object' ? String(value.id || '') : String(value || '')
+  }
+
   const editBooking = async (booking: BookingRow) => {
     if (booking.isPast) return
 
     resetForm()
+
+    const detailResponse = await fetch(`/api/reservation-desk/${booking.id}`, {
+      credentials: 'include',
+    })
+    const detail = detailResponse.ok ? await detailResponse.json() : null
+    const rawBooking = detail?.raw || detail?.booking || booking
+    const savedExtras = Array.isArray(rawBooking.extras) ? rawBooking.extras : []
+    const savedOtherExtras = Array.isArray(rawBooking.otherExtras) ? rawBooking.otherExtras : []
+    const savedPayments = Array.isArray(rawBooking.payments) ? rawBooking.payments : []
+
+    const nextSelectedExtras = savedExtras.reduce((accumulator: Record<string, number>, row: any) => {
+      const extraId = normaliseSavedExtraId(row)
+      if (!extraId) return accumulator
+      accumulator[extraId] = Number(row?.quantity || 1)
+      return accumulator
+    }, {})
+
+    setSelectedExtras(nextSelectedExtras)
+    setOtherExtras(savedOtherExtras.map((row: any) => ({
+      description: String(row?.description || ''),
+      quantity: Math.max(1, Number(row?.quantity || 1)),
+      price: Math.max(0, Number(row?.price || 0)),
+    })))
+
+    if (savedPayments.length) {
+      setPayments(savedPayments.map((payment: any) => ({
+        amount: Math.max(0, Math.round(Number(payment?.amount || 0))),
+        method: payment?.method || 'Mamo Pay',
+        status: 'scheduled',
+        date: String(payment?.date || '').slice(0, 10) || toDateInput(),
+        kind: payment?.kind || 'full',
+      })))
+      setPaymentMode(savedPayments.length > 1 ? 'multiple' : 'full')
+      setPaymentCount(Math.max(2, Math.min(10, savedPayments.length || 2)))
+    }
+
     setEditingId(booking.id)
     setForm((current) => ({
       ...current,
       date: toDubaiDateInput(booking.startTime),
       startTime: toDubaiTimeInput(booking.startTime),
-      duration: durationFromTimes(booking.startTime, booking.endTime),
-      guests: booking.guests || 1,
-      boatId: booking.boatId || '',
-      yachtSearch: booking.boatName || '',
-      guestName: booking.guestName || '',
-      guestEmail: booking.guestEmail || '',
-      countryCode: booking.countryCode || '+971',
-      guestPhone: booking.guestPhone || '',
-      specialRequests: booking.specialRequests || '',
-      meetingPointName: booking.meetingPointName || '',
-      meetingPointPin: booking.meetingPointPin || '',
-      contactPersonName: booking.contactPersonName || '',
-      contactPersonNumber: booking.contactPersonNumber || '',
-      parkingLocationName: booking.parkingLocationName || '',
-      parkingLocationPin: booking.parkingLocationPin || '',
+      duration: durationFromTimes(booking.startTime, rawBooking.endTime || booking.endTime),
+      guests: rawBooking.guests || booking.guests || 1,
+      boatId: rawBooking.boatId || booking.boatId || '',
+      yachtSearch: rawBooking.boatName || booking.boatName || '',
+      guestName: rawBooking.guestName || booking.guestName || '',
+      guestEmail: rawBooking.guestEmail || booking.guestEmail || '',
+      countryCode: rawBooking.countryCode || booking.countryCode || '+971',
+      guestPhone: rawBooking.guestPhone || booking.guestPhone || '',
+      specialRequests: rawBooking.specialRequests || booking.specialRequests || '',
+      meetingPointName: rawBooking.meetingPointName || booking.meetingPointName || '',
+      meetingPointPin: rawBooking.meetingPointPin || booking.meetingPointPin || '',
+      contactPersonName: rawBooking.contactPersonName || booking.contactPersonName || '',
+      contactPersonNumber: rawBooking.contactPersonNumber || booking.contactPersonNumber || '',
+      parkingLocationName: rawBooking.parkingLocationName || booking.parkingLocationName || '',
+      parkingLocationPin: rawBooking.parkingLocationPin || booking.parkingLocationPin || '',
       status: booking.status || 'pending',
     }))
     setView('form')

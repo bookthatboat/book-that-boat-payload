@@ -432,10 +432,18 @@ export const reservationDeskEndpoints: Endpoint[] = [
           collection: 'reservations',
           id,
           data: { status } as any,
+          user: req.user,
           overrideAccess: true,
         })
 
-        return Response.json({ booking: mapReservation(updated) })
+        const freshBookingAfterStatusUpdate = await req.payload.findByID({
+          collection: 'reservations',
+          id,
+          depth: 2,
+          overrideAccess: true,
+        })
+
+        return Response.json({ booking: mapReservation(freshBookingAfterStatusUpdate || updated) })
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Could not update status'
         return Response.json({ message: `Could not update status: ${message}` }, { status: 400 })
