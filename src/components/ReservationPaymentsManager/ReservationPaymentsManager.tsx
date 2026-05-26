@@ -1015,6 +1015,65 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
 
   return (
     <div style={styles.wrap}>
+      <style>
+        {`
+          @media (max-width: 760px) {
+            .btb-payment-table {
+              padding: 12px !important;
+              overflow-x: visible !important;
+            }
+
+            .btb-payment-table table,
+            .btb-payment-table thead,
+            .btb-payment-table tbody,
+            .btb-payment-table tr,
+            .btb-payment-table td {
+              display: block;
+              width: 100%;
+              box-sizing: border-box;
+            }
+
+            .btb-payment-table thead {
+              display: none;
+            }
+
+            .btb-payment-table tr {
+              margin-bottom: 12px;
+              padding: 12px;
+              border: 1px solid var(--theme-elevation-150);
+              border-radius: 8px;
+              background: var(--theme-elevation-100);
+            }
+
+            .btb-payment-table td {
+              border-bottom: 0 !important;
+              padding: 8px 0 !important;
+            }
+
+            .btb-payment-table td::before {
+              content: attr(data-label);
+              display: block;
+              margin-bottom: 4px;
+              color: var(--theme-elevation-500);
+              font-size: 12px;
+              font-weight: 700;
+            }
+
+            .btb-payment-table input,
+            .btb-payment-table select,
+            .btb-payment-table textarea {
+              width: 100% !important;
+              max-width: 100% !important;
+              min-width: 0 !important;
+              box-sizing: border-box;
+            }
+
+            .btb-payment-table button {
+              width: 100%;
+            }
+          }
+        `}
+      </style>
       <div style={styles.header}>
         <h3 style={styles.title}>Payment Schedule Manager</h3>
         <p style={styles.help}>
@@ -1165,7 +1224,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
         </div>
       )}
 
-      <div style={styles.tableWrap}>
+      <div className="btb-payment-table" style={styles.tableWrap}>
         {recalculatedPayments.length === 0 ? (
           <p style={styles.help}>
             No payment schedule yet. Click “Create full payment row” or “Add scheduled payment row”.
@@ -1196,7 +1255,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
 
                 return (
                   <tr key={payment.id || index}>
-                    <td style={styles.td}>
+                    <td data-label="Amount" style={styles.td}>
                       <input
                         type="number"
                         min={0}
@@ -1210,7 +1269,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
                       />
                     </td>
 
-                    <td style={styles.td}>
+                    <td data-label="Scheduled Due Date" style={styles.td}>
                       <input
                         type="date"
                         min={reservationCreatedDate || undefined}
@@ -1228,7 +1287,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
                       </div>
                     </td>
 
-                    <td style={styles.td}>
+                    <td data-label="Received Date" style={styles.td}>
                       <input
                         type="date"
                         value={toDateInputValue(payment.paidAt)}
@@ -1255,7 +1314,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
                       </div>
                     </td>
 
-                    <td style={styles.td}>
+                    <td data-label="Method" style={styles.td}>
                       <select
                         value={payment.method || methodValue || 'Mamo Pay'}
                         onChange={(event) =>
@@ -1271,7 +1330,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
                       </select>
                     </td>
 
-                    <td style={styles.td}>
+                    <td data-label="Status" style={styles.td}>
                       {isSystemRow ? (
                         <div>
                           <strong>{getPaymentStatusLabel(payment.status)}</strong>
@@ -1295,16 +1354,16 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
                       )}
                     </td>
 
-                    <td style={styles.td}>
+                    <td data-label="Fee" style={styles.td}>
                       {payment.method === 'Mamo Pay'
                         ? `${money(toNumber(payment.processingFeeAmount))} (${payment.processingFeePercentage || MAMO_PROCESSING_FEE_PERCENTAGE}%)`
                         : money(0)}
                     </td>
 
-                    <td style={styles.td}>{money(toNumber(payment.customerPayableAmount))}</td>
-                    <td style={styles.td}>{money(toNumber(payment.balance))}</td>
+                    <td data-label="Customer Pays" style={styles.td}>{money(toNumber(payment.customerPayableAmount))}</td>
+                    <td data-label="Balance" style={styles.td}>{money(toNumber(payment.balance))}</td>
 
-                    <td style={styles.td}>
+                    <td data-label="Link Details" style={styles.td}>
                       {payment.method === 'Mamo Pay' ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                           <button
@@ -1327,7 +1386,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
                       )}
                     </td>
 
-                    <td style={styles.td}>
+                    <td data-label="Notes" style={styles.td}>
                       <textarea
                         value={payment.notes || ''}
                         onChange={(event) =>
@@ -1343,7 +1402,7 @@ export function ReservationPaymentsManager({ path = 'payments' }: { path?: strin
                       />
                     </td>
 
-                    <td style={styles.td}>
+                    <td data-label="Actions" style={styles.td}>
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                         <button
                           type="button"
