@@ -5595,6 +5595,33 @@ export const Reservations: CollectionConfig = {
               : (req as any).body || null
 
           const payments = Array.isArray(body?.payments) ? body.payments : []
+          const deletedPaymentKeys = new Set(
+            Array.isArray(body?.deletedPaymentKeys)
+              ? body.deletedPaymentKeys.map((key: unknown) => String(key || '').trim()).filter(Boolean)
+              : [],
+          )
+
+          const getPaymentDeleteKey = (payment?: any): string => {
+            if (!payment) return ''
+
+            return String(
+              payment.id ||
+                payment.paymentLinkId ||
+                payment.paymentLink ||
+                payment.actualMamoChargeId ||
+                payment.actualPaymentLinkId ||
+                `${payment.amount || 0}:${payment.method || ''}:${payment.status || ''}:${payment.date || ''}:${payment.paidAt || ''}`,
+            ).trim()
+          }
+
+          const removeDeletedPaymentRows = (rows: any[]) => {
+            if (!deletedPaymentKeys.size) return rows
+
+            return rows.filter((payment) => {
+              const key = getPaymentDeleteKey(payment)
+              return !key || !deletedPaymentKeys.has(key)
+            })
+          }
 
           const updatedDoc = await req.payload.update({
             collection: 'reservations',
@@ -5617,8 +5644,37 @@ export const Reservations: CollectionConfig = {
 
           let responseDoc = updatedDoc
           let savedPayments = Array.isArray((responseDoc as any)?.payments)
-            ? (responseDoc as any).payments
+            ? removeDeletedPaymentRows((responseDoc as any).payments)
             : []
+
+          if (
+            deletedPaymentKeys.size > 0 &&
+            Array.isArray((updatedDoc as any)?.payments) &&
+            savedPayments.length !== (updatedDoc as any).payments.length
+          ) {
+            responseDoc = await req.payload.update({
+              collection: 'reservations',
+              id,
+              data: {
+                payments: savedPayments,
+                paymentMethod: getPaymentMethodForSchedule(savedPayments),
+                paymentsUpdateSource: 'payment-manager',
+              } as any,
+              overrideAccess: true,
+              context: {
+                paymentsUpdateSource: 'payment-manager',
+                skipPaymentReconciliation: true,
+                skipBalancePaymentLink: true,
+                skipFullPaymentCoverageValidation: true,
+                allowPartialPaymentSchedule: true,
+                preserveSubmittedPaymentRows: true,
+              },
+            })
+
+            savedPayments = Array.isArray((responseDoc as any)?.payments)
+              ? removeDeletedPaymentRows((responseDoc as any).payments)
+              : savedPayments
+          }
 
           if (payments.length > 0 && savedPayments.length === 0) {
             return Response.json(
@@ -5674,13 +5730,14 @@ export const Reservations: CollectionConfig = {
             })
 
             savedPayments = Array.isArray((responseDoc as any)?.payments)
-              ? (responseDoc as any).payments
+              ? removeDeletedPaymentRows((responseDoc as any).payments)
               : []
           }
 
           return Response.json({
             doc: responseDoc,
             submittedPaymentsCount: payments.length,
+            deletedPaymentKeys: Array.from(deletedPaymentKeys),
             paymentsCount: savedPayments.length,
             savedPayments,
           })
