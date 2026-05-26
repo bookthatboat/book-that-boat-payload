@@ -5641,21 +5641,62 @@ export const Reservations: CollectionConfig = {
             ).trim()
           }
 
+          const isProtectedPaymentRow = (payment?: any) => {
+            if (!payment) return false
+
+            return (
+              payment.status === 'completed' ||
+              Boolean(payment.actualMamoChargeId) ||
+              Boolean(payment.reconciledAt) ||
+              Boolean(payment.reconciliationSource)
+            )
+          }
+
           const removeDeletedPaymentRows = (rows: any[]) => {
             if (!deletedPaymentKeys.size) return rows
 
             return rows.filter((payment) => {
+              // Received/reconciled rows are accounting records. They must not be
+              // removed by a schedule edit, even if a stale mobile UI submits them
+              // as deleted. They should be refunded/voided via a separate workflow.
+              if (isProtectedPaymentRow(payment)) return true
+
               const key = getPaymentDeleteKey(payment)
               return !key || !deletedPaymentKeys.has(key)
             })
           }
 
+          const existingReservation = await req.payload.findByID({
+            collection: 'reservations',
+            id,
+            depth: 0,
+            overrideAccess: true,
+          })
+
+          const existingPayments = Array.isArray((existingReservation as any)?.payments)
+            ? (existingReservation as any).payments
+            : []
+
+          const submittedPaymentKeys = new Set(payments.map((payment: any) => getPaymentDeleteKey(payment)).filter(Boolean))
+
+          const protectedExistingPaymentsToRestore = existingPayments.filter((payment: any) => {
+            if (!isProtectedPaymentRow(payment)) return false
+
+            const key = getPaymentDeleteKey(payment)
+            return key && !submittedPaymentKeys.has(key)
+          })
+
+          const paymentsToPersist =
+            protectedExistingPaymentsToRestore.length > 0
+              ? [...payments, ...protectedExistingPaymentsToRestore]
+              : payments
+
           const updatedDoc = await req.payload.update({
             collection: 'reservations',
             id,
             data: {
-              payments,
-              paymentMethod: getPaymentMethodForSchedule(payments),
+              payments: paymentsToPersist,
+              paymentMethod: getPaymentMethodForSchedule(paymentsToPersist),
               paymentsUpdateSource: 'payment-manager',
             } as any,
             overrideAccess: true,
