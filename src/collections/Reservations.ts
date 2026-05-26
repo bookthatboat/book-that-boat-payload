@@ -5638,25 +5638,30 @@ export const Reservations: CollectionConfig = {
           const now = new Date()
           const today = startOfUtcDay(now)
 
-          const shouldRunPaymentActivation = savedPayments.some((payment: any) => {
-            const status = payment?.status || ''
-            const method = payment?.method || 'Mamo Pay'
-            const hasMamoLink = Boolean(payment?.paymentLinkId || payment?.paymentLink)
+          const shouldPreserveSubmittedPaymentRows =
+            req?.context?.preserveSubmittedPaymentRows === true
 
-            const dueDate = payment.date ? startOfUtcDay(new Date(payment.date)) : null
-            const isDue =
-              dueDate &&
-              !Number.isNaN(dueDate.getTime()) &&
-              dueDate <= today
+          const shouldRunPaymentActivation =
+            !shouldPreserveSubmittedPaymentRows &&
+            savedPayments.some((payment: any) => {
+              const status = payment?.status || ''
+              const method = payment?.method || 'Mamo Pay'
+              const hasMamoLink = Boolean(payment?.paymentLinkId || payment?.paymentLink)
 
-            const isDueScheduledRow = status === 'scheduled' && isDue
-            const isPendingMamoRowMissingLink =
-              status === 'pending' &&
-              method === 'Mamo Pay' &&
-              !hasMamoLink
+              const dueDate = payment.date ? startOfUtcDay(new Date(payment.date)) : null
+              const isDue =
+                dueDate &&
+                !Number.isNaN(dueDate.getTime()) &&
+                dueDate <= today
 
-            return isDueScheduledRow || isPendingMamoRowMissingLink
-          })
+              const isDueScheduledRow = status === 'scheduled' && isDue
+              const isPendingMamoRowMissingLink =
+                status === 'pending' &&
+                method === 'Mamo Pay' &&
+                !hasMamoLink
+
+              return isDueScheduledRow || isPendingMamoRowMissingLink
+            })
 
           if (shouldRunPaymentActivation) {
             await activateDueScheduledPayments(req.payload)
