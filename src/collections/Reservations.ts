@@ -7151,10 +7151,15 @@ export const Reservations: CollectionConfig = {
         const shouldProcessStatusChange =
           operation === 'create' || (operation === 'update' && doc.status !== previousDoc?.status)
 
+        const forceReservationDeskAwaitingPaymentEmail =
+          req?.context?.reservationDeskForceAwaitingPaymentEmail === true &&
+          doc.status === 'awaiting payment'
+
         // Check if we need to process payment link creation
         const shouldProcessPaymentLink =
           doc.status === 'awaiting payment' &&
-          (!previousDoc || previousDoc.status !== 'awaiting payment')
+          ((!previousDoc || previousDoc.status !== 'awaiting payment') ||
+            forceReservationDeskAwaitingPaymentEmail)
 
         // Don't process if this is a payment confirmation (handled by polling)
         const isPaymentConfirmation =
