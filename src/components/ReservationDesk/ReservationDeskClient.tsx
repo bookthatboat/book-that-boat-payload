@@ -47,7 +47,7 @@ type BookingRow = {
 type PaymentRow = {
   amount: number
   method: 'Mamo Pay' | 'Bank Transfer' | 'Cash'
-  status: 'scheduled' | 'pending' | 'completed'
+  status: 'scheduled'
   date: string
   kind: 'full' | 'downpayment' | 'installment' | 'balance'
 }
@@ -142,6 +142,8 @@ export default function ReservationDeskClient() {
   const [extraCategory, setExtraCategory] = useState('all')
   const [otherExtras, setOtherExtras] = useState<Array<{ description: string; price: number; quantity: number }>>([])
   const [payments, setPayments] = useState<PaymentRow[]>([defaultPayment(0)])
+  const [paymentMode, setPaymentMode] = useState<'full' | 'multiple'>('full')
+  const [paymentCount, setPaymentCount] = useState(2)
 
   const selectedBoat = boats.find((boat) => boat.id === form.boatId) || null
 
@@ -183,6 +185,8 @@ export default function ReservationDeskClient() {
     setSelectedExtras({})
     setOtherExtras([])
     setPayments([defaultPayment(0)])
+    setPaymentMode('full')
+    setPaymentCount(2)
     setStep(0)
     setView('form')
   }
@@ -219,6 +223,57 @@ export default function ReservationDeskClient() {
     if (!payments.some((payment) => payment.amount > 0)) {
       setPayments([defaultPayment(data.preview.totalPrice || 0)])
     }
+  }
+
+
+  const hydratePaymentsFromTotal = (
+    total: number,
+    mode = paymentMode,
+    count = paymentCount,
+    method = form.method,
+  ) => {
+    const safeTotal = Math.max(0, Math.round(Number(total || 0)))
+
+    if (mode === 'full') {
+      setPayments([
+        {
+          amount: safeTotal,
+          method,
+          status: 'scheduled',
+          date: toDateInput(),
+          kind: 'full',
+        },
+      ])
+      return
+    }
+
+    const safeCount = Math.max(2, Math.min(10, Math.floor(Number(count || 2))))
+    const base = Math.floor(safeTotal / safeCount)
+    const remainder = safeTotal - base * safeCount
+
+    setPayments(
+      Array.from({ length: safeCount }, (_, index) => ({
+        amount: base + (index === 0 ? remainder : 0),
+        method,
+        status: 'scheduled' as const,
+        date: toDateInput(),
+        kind: index === 0 ? 'downpayment' : index === safeCount - 1 ? 'balance' : 'installment',
+      })),
+    )
+  }
+
+  const applyPaymentMode = (mode: 'full' | 'multiple', count = paymentCount) => {
+    setPaymentMode(mode)
+    const safeCount = Math.max(2, Math.min(10, Math.floor(Number(count || 2))))
+    setPaymentCount(safeCount)
+    hydratePaymentsFromTotal(preview?.totalPrice || 0, mode, safeCount, form.method)
+  }
+
+  const canAccessStep = (targetStep: number) => {
+    if (targetStep <= step) return true
+    if (targetStep >= 1 && (!form.date || !form.startTime || !form.duration || !form.guests || !form.boatId)) return false
+    if (targetStep >= 2 && (!form.guestName || !form.guestEmail || !form.countryCode || !form.guestPhone || !isEmail(form.guestEmail))) return false
+    return true
   }
 
   const updateStatus = async (booking: BookingRow, status: string) => {
@@ -317,9 +372,10 @@ export default function ReservationDeskClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.boatId, form.duration, form.couponId, form.couponCode, form.customDiscountAmount, selectedExtras, otherExtras])
 
-  const addPayment = () => setPayments((current) => [...current, { ...defaultPayment(0), kind: current.length ? 'balance' : 'full', method: form.method }])
-  const updatePayment = (index: number, key: keyof PaymentRow, value: any) => setPayments((current) => current.map((payment, i) => (i === index ? { ...payment, [key]: value } : payment)))
-  const removePayment = (index: number) => setPayments((current) => current.filter((_, i) => i !== index))
+  const updatePayment = (index: number, key: keyof PaymentRow, value: any) =>
+    setPayments((current) =>
+      current.map((payment, i) => (i === index ? { ...payment, [key]: value } : payment)),
+    )
 
   return (
     <main className="btb-reservation-desk">
@@ -369,7 +425,15 @@ export default function ReservationDeskClient() {
         <>
           <nav className="btb-reservation-desk__steps">
             {['Trip & Yacht', 'Guest', 'Extras', 'Price', 'Review'].map((label, index) => (
-              <button key={label} type="button" className={step === index ? 'is-active' : ''} onClick={() => setStep(index)}>
+              <button
+                key={label}
+                type="button"
+                className={step === index ? 'is-active' : ''}
+                disabled={!canAccessStep(index)}
+                onClick={() => {
+                  if (canAccessStep(index)) setStep(index)
+                }}
+              >
                 {index + 1}. {label}
               </button>
             ))}
@@ -461,7 +525,12 @@ export default function ReservationDeskClient() {
               {step === 3 ? (
                 <div className="btb-reservation-desk__form">
                   <h2>Price & Discounts</h2>
-                  <div className="btb-reservation-desk__total">{formatAED(preview?.totalPrice || 0)}</div>
+
+                  <div className="btb-reservation-desk__total">
+                    <span>Total after extras, coupon and discount</span>
+                    <strong>{formatAED(preview?.totalPrice || 0)}</strong>
+                  </div>
+
                   <label>Coupon
                     <select value={form.couponId} onChange={(event) => {
                       update('couponId', event.target.value)
@@ -471,11 +540,40 @@ export default function ReservationDeskClient() {
                       {coupons.map((coupon) => <option key={coupon.id} value={coupon.id}>{coupon.code}</option>)}
                     </select>
                   </label>
+
                   <label>Coupon code<input value={form.couponCode} onChange={(event) => {
                     update('couponCode', event.target.value)
                     update('couponId', '')
                   }} /></label>
+
                   <label>Custom discount<input type="number" min={0} value={form.customDiscountAmount} onChange={(event) => update('customDiscountAmount', Number(event.target.value))} /></label>
+
+                  <div className="btb-reservation-desk__choice">
+                    <button
+                      type="button"
+                      className={paymentMode === 'full' ? 'is-active' : ''}
+                      onClick={() => applyPaymentMode('full')}
+                    >
+                      Pay in full
+                    </button>
+                    <button
+                      type="button"
+                      className={paymentMode === 'multiple' ? 'is-active' : ''}
+                      onClick={() => applyPaymentMode('multiple')}
+                    >
+                      Multiple payments
+                    </button>
+                  </div>
+
+                  {paymentMode === 'multiple' ? (
+                    <label>Number of payments
+                      <select value={paymentCount} onChange={(event) => applyPaymentMode('multiple', Number(event.target.value))}>
+                        {[2, 3, 4, 5, 6, 7, 8, 9, 10].map((count) => (
+                          <option key={count} value={count}>{count} payments</option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
 
                   {payments.map((payment, index) => (
                     <div className="btb-reservation-desk__payment" key={index}>
@@ -491,16 +589,10 @@ export default function ReservationDeskClient() {
                         <option value="Bank Transfer">Bank Transfer</option>
                         <option value="Cash">Cash</option>
                       </select>
-                      <select value={payment.status} onChange={(event) => updatePayment(index, 'status', event.target.value)}>
-                        <option value="scheduled">Scheduled</option>
-                        <option value="pending">Awaiting Payment</option>
-                        <option value="completed">Received</option>
-                      </select>
                       <input type="date" value={payment.date} onChange={(event) => updatePayment(index, 'date', event.target.value)} />
-                      <button type="button" onClick={() => removePayment(index)}>Remove</button>
                     </div>
                   ))}
-                  <button type="button" onClick={addPayment}>Add payment row</button>
+
                   <button type="button" onClick={() => setStep(4)}>Review</button>
                 </div>
               ) : null}
