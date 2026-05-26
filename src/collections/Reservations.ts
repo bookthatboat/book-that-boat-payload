@@ -1460,10 +1460,15 @@ const sendEmail = async (to: string, subject: string, html: string) => {
       return
     }*/
 
+    if (!String(to || '').trim()) {
+      throw new Error(`Email recipient is missing for subject: ${subject}`)
+    }
+
     await sendEmailViaGraph({ to, subject, html })
-    console.log('Email sent successfully via Microsoft Graph')
+    console.log(`Email sent successfully via Microsoft Graph to ${to}`)
   } catch (error) {
     console.error('Error sending email via Microsoft Graph:', error)
+    throw error
   }
 }
 
@@ -7212,18 +7217,20 @@ export const Reservations: CollectionConfig = {
 
             startPaymentPolling(payload)
 
-              if (user.email) {
-                await sendEmail(
-                  user.email,
-                  `Book That Boat - Yacht Rental Dubai - Booking #${doc.transactionId || doc.id}`,
-                  getStatusEmailContent('user', 'awaiting payment', boat, user, {
-                    ...doc,
-                    payments: activatedSchedule.payments,
-                    paymentLink: activatedSchedule.paymentLink,
-                    paymentLinkId: activatedSchedule.paymentLinkId,
-                  }),
-                )
+              if (!user.email) {
+                throw new Error(`Guest email is missing for booking #${doc.transactionId || doc.id}`)
               }
+
+              await sendEmail(
+                user.email,
+                `Book That Boat - Yacht Rental Dubai - Booking #${doc.transactionId || doc.id}`,
+                getStatusEmailContent('user', 'awaiting payment', boat, user, {
+                  ...doc,
+                  payments: activatedSchedule.payments,
+                  paymentLink: activatedSchedule.paymentLink,
+                  paymentLinkId: activatedSchedule.paymentLinkId,
+                }),
+              )
 
               await sendEmail(
                 EMAIL_CONFIG.adminEmail,
