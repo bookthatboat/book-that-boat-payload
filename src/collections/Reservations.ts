@@ -2259,8 +2259,7 @@ const getCreativeEmailTemplate = (
           '',
       ).trim()
       const paymentRequestAmount = Number(
-        paymentRequestRow?.customerPayableAmount ||
-          paymentRequestRow?.amount ||
+        paymentRequestRow?.amount ||
           reservation.totalPrice ||
           0,
       )
