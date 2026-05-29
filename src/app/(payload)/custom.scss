@@ -1633,3 +1633,23 @@
     display: grid;
   }
 }
+
+.btb-reservation-desk__payment input:disabled,
+.btb-reservation-desk__payment select:disabled {
+  background: #eef3f8;
+  color: #62758a;
+  cursor: not-allowed;
+}
+
+.btb-reservation-desk__locked-payment {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #eef6ff;
+  color: #0b63b6;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 850;
+}

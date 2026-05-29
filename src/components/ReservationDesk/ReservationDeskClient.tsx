@@ -52,9 +52,11 @@ type BookingRow = {
 }
 
 type PaymentRow = {
+  id?: string
+  isExisting?: boolean
   amount: number
   method: 'Mamo Pay' | 'Bank Transfer' | 'Cash'
-  status: 'scheduled'
+  status: 'scheduled' | 'pending' | 'completed' | 'refunded'
   date: string
   kind: 'full' | 'downpayment' | 'installment' | 'balance'
 }
@@ -136,6 +138,14 @@ const emptyForm = {
 }
 
 const isEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+
+const sumPaymentAmounts = (rows: PaymentRow[]) =>
+  rows.reduce((sum, row) => sum + Math.max(0, Math.round(Number(row.amount || 0))), 0)
+
+const stripPaymentUiFields = (rows: PaymentRow[]) =>
+  rows.map(({ isExisting, ...row }) => row)
+
+const isExistingPaymentLocked = (payment: PaymentRow) => Boolean(payment.isExisting)
 
 export default function ReservationDeskClient() {
   const [view, setView] = useState<'list' | 'form'>('list')
@@ -241,12 +251,53 @@ export default function ReservationDeskClient() {
   }
 
 
+  const preserveExistingPaymentRows = (
+    total: number,
+    mode: 'full' | 'multiple',
+    count: number,
+    method: PaymentRow['method'],
+  ) => {
+    if (!editingId || payments.length === 0) return false
+
+    const existingRows = payments.filter((payment) => payment.isExisting)
+    if (existingRows.length === 0) return false
+
+    const safeTotal = Math.max(0, Math.round(Number(total || 0)))
+    const existingTotal = sumPaymentAmounts(existingRows)
+    const remaining = Math.max(0, safeTotal - existingTotal)
+    const requestedCount = Math.max(2, Math.min(10, Math.floor(Number(count || existingRows.length))))
+    const additionalRowsNeeded = Math.max(0, requestedCount - existingRows.length)
+    const currentNewRows = payments.filter((payment) => !payment.isExisting)
+
+    if (mode === 'full' || additionalRowsNeeded === 0) {
+      setPayments(existingRows)
+      return true
+    }
+
+    const base = Math.floor(remaining / additionalRowsNeeded)
+    const remainder = remaining - base * additionalRowsNeeded
+
+    const nextNewRows = Array.from({ length: additionalRowsNeeded }, (_, index) => ({
+      ...(currentNewRows[index] || {}),
+      amount: currentNewRows[index]?.amount ?? base + (index === 0 ? remainder : 0),
+      method: currentNewRows[index]?.method || method,
+      status: 'scheduled' as const,
+      date: currentNewRows[index]?.date || toDateInput(),
+      kind: currentNewRows[index]?.kind || (index === additionalRowsNeeded - 1 ? 'balance' : 'installment'),
+    }))
+
+    setPayments([...existingRows, ...nextNewRows])
+    return true
+  }
+
   const hydratePaymentsFromTotal = (
     total: number,
     mode = paymentMode,
     count = paymentCount,
     method = form.method,
   ) => {
+    if (preserveExistingPaymentRows(total, mode, count, method)) return
+
     const safeTotal = Math.max(0, Math.round(Number(total || 0)))
 
     if (mode === 'full') {
@@ -351,9 +402,12 @@ export default function ReservationDeskClient() {
 
     if (savedPayments.length) {
       setPayments(savedPayments.map((payment: any) => ({
+        ...payment,
+        id: payment?.id,
+        isExisting: true,
         amount: Math.max(0, Math.round(Number(payment?.amount || 0))),
         method: payment?.method || 'Mamo Pay',
-        status: 'scheduled',
+        status: payment?.status || 'scheduled',
         date: String(payment?.date || '').slice(0, 10) || toDateInput(),
         kind: payment?.kind || 'full',
       })))
@@ -374,6 +428,7 @@ export default function ReservationDeskClient() {
       guestEmail: rawBooking.guestEmail || booking.guestEmail || '',
       countryCode: rawBooking.countryCode || booking.countryCode || '+971',
       guestPhone: rawBooking.guestPhone || booking.guestPhone || '',
+      customDiscountAmount: Number(rawBooking.customDiscountAmount || 0),
       specialRequests: rawBooking.specialRequests || booking.specialRequests || '',
       meetingPointName: rawBooking.meetingPointName || booking.meetingPointName || '',
       meetingPointPin: rawBooking.meetingPointPin || booking.meetingPointPin || '',
@@ -427,7 +482,7 @@ export default function ReservationDeskClient() {
         method: editingId ? 'PATCH' : 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, extras: selectedExtraRows, otherExtras, payments }),
+        body: JSON.stringify({ ...form, extras: selectedExtraRows, otherExtras, payments: stripPaymentUiFields(payments) }),
       })
       const data = await response.json()
       if (!response.ok || !data.success) throw new Error(data?.message || 'Could not save reservation.')
@@ -815,23 +870,28 @@ export default function ReservationDeskClient() {
                     </label>
                   ) : null}
 
-                  {payments.map((payment, index) => (
-                    <div className="btb-reservation-desk__payment" key={index}>
-                      <input type="number" value={payment.amount} onChange={(event) => updatePayment(index, 'amount', Number(event.target.value))} />
-                      <select value={payment.kind} onChange={(event) => updatePayment(index, 'kind', event.target.value)}>
-                        <option value="full">Full</option>
-                        <option value="downpayment">Down payment</option>
-                        <option value="installment">Installment</option>
-                        <option value="balance">Balance</option>
-                      </select>
-                      <select value={payment.method} onChange={(event) => updatePayment(index, 'method', event.target.value)}>
-                        <option value="Mamo Pay">Mamo Pay</option>
-                        <option value="Bank Transfer">Bank Transfer</option>
-                        <option value="Cash">Cash</option>
-                      </select>
-                      <input type="date" value={payment.date} onChange={(event) => updatePayment(index, 'date', event.target.value)} />
-                    </div>
-                  ))}
+                  {payments.map((payment, index) => {
+                    const locked = isExistingPaymentLocked(payment)
+
+                    return (
+                      <div className="btb-reservation-desk__payment" key={payment.id || index}>
+                        <input type="number" value={payment.amount} disabled={locked} onChange={(event) => updatePayment(index, 'amount', Number(event.target.value))} />
+                        <select value={payment.kind} disabled={locked} onChange={(event) => updatePayment(index, 'kind', event.target.value)}>
+                          <option value="full">Full</option>
+                          <option value="downpayment">Down payment</option>
+                          <option value="installment">Installment</option>
+                          <option value="balance">Balance</option>
+                        </select>
+                        <select value={payment.method} disabled={locked} onChange={(event) => updatePayment(index, 'method', event.target.value)}>
+                          <option value="Mamo Pay">Mamo Pay</option>
+                          <option value="Bank Transfer">Bank Transfer</option>
+                          <option value="Cash">Cash</option>
+                        </select>
+                        <input type="date" value={payment.date} disabled={locked} onChange={(event) => updatePayment(index, 'date', event.target.value)} />
+                        {locked ? <span className="btb-reservation-desk__locked-payment">Existing payment</span> : null}
+                      </div>
+                    )
+                  })}
 
                   <button type="button" onClick={() => validateStep(5)}>Review</button>
                 </div>
