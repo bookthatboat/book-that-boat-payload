@@ -24,6 +24,51 @@ const parseLengthFt = (value: unknown): number | undefined => {
   return Number.isFinite(length) ? length : undefined
 }
 
+const getRelationshipId = (value: unknown): string => {
+  if (!value) return ''
+  if (typeof value === 'object' && value !== null && 'id' in value) {
+    return String((value as { id?: string }).id || '')
+  }
+  return String(value)
+}
+
+const getGalleryImageId = (item: any): string => {
+  return getRelationshipId(item?.image)
+}
+
+async function syncGlobalAmenities(data: any, req: any) {
+  if (!Array.isArray(data?.globalAmenities)) return data
+
+  const ids = data.globalAmenities.map(getRelationshipId).filter(Boolean)
+
+  if (ids.length === 0) {
+    data.amenities = []
+    return data
+  }
+
+  const docs = await Promise.all(
+    ids.map(async (id: string) => {
+      try {
+        return await req.payload.findByID({
+          collection: 'amenities',
+          id,
+          depth: 0,
+          overrideAccess: true,
+        })
+      } catch {
+        return null
+      }
+    }),
+  )
+
+  data.amenities = docs
+    .filter(Boolean)
+    .map((amenity: any) => ({ item: amenity.name }))
+    .filter((row: any) => row.item)
+
+  return data
+}
+
 async function getLocationName(locationId: string, req: any): Promise<string> {
   try {
     const location = await req.payload.findByID({
@@ -173,14 +218,34 @@ export const Boats: CollectionConfig = {
 
       async ({ data, req }) => {
         if (data.gallery && Array.isArray(data.gallery)) {
-          data.gallery = data.gallery.map((item: any) => {
-            if (item.image && typeof item.image === 'object') {
-              return { image: item.image.id || item.image }
+          let featuredSeen = false
+
+          data.gallery = data.gallery.map((item: any, index: number) => {
+            const image = getGalleryImageId(item)
+            const isFeatured = Boolean(item?.isFeatured) && !featuredSeen
+
+            if (isFeatured) {
+              featuredSeen = true
+              data.media = image || data.media
             }
-            return item
+
+            return {
+              ...item,
+              image: image || item.image,
+              isFeatured,
+            }
           })
+
+          if (!data.media) {
+            const firstImage = getGalleryImageId(data.gallery[0])
+            if (firstImage) {
+              data.gallery[0].isFeatured = true
+              data.media = firstImage
+            }
+          }
         }
-        return data
+
+        return syncGlobalAmenities(data, req)
       },
     ],
   },
@@ -689,8 +754,22 @@ export const Boats: CollectionConfig = {
       },
     },
     {
+      name: 'globalAmenities',
+      type: 'relationship',
+      relationTo: 'amenities',
+      hasMany: true,
+      label: 'Amenities',
+      admin: {
+        description: 'Select from the global amenities list. These selections sync to the legacy amenities list used by the frontend.',
+        components: {
+          Field: '/components/AmenityChecklistField/AmenityChecklistField#AmenityChecklistField',
+        },
+      },
+    },
+    {
       name: 'amenities',
       type: 'array',
+      label: 'Legacy Amenities',
       fields: [
         {
           name: 'item',
@@ -700,6 +779,7 @@ export const Boats: CollectionConfig = {
       ],
       admin: {
         initCollapsed: true,
+        description: 'Auto-synced from the Amenities checklist. Keep only for backwards compatibility.',
       },
     },
     {
@@ -769,8 +849,11 @@ export const Boats: CollectionConfig = {
       name: 'media',
       type: 'upload',
       relationTo: 'media',
-      required: true,
+      required: false,
       label: 'Featured Image',
+      admin: {
+        description: 'Auto-synced from the gallery image marked as featured. Kept for frontend compatibility.',
+      },
     },
     {
       name: 'gallery',
@@ -790,6 +873,15 @@ export const Boats: CollectionConfig = {
           type: 'upload',
           relationTo: 'media',
           required: true,
+        },
+        {
+          name: 'isFeatured',
+          type: 'checkbox',
+          label: 'Featured',
+          defaultValue: false,
+          admin: {
+            description: 'Only one gallery image can be featured. This syncs to the boat Featured Image field.',
+          },
         },
       ],
     },

@@ -23,6 +23,7 @@ import { Reviews } from './collections/Reviews'
 import { Coupons } from './collections/Coupons'
 import { startPaymentPolling } from './collections/Reservations'
 import { Subscribers } from './collections/Subscribers'
+import { Amenities } from './collections/Amenities'
 import { reservationDeskEndpoints } from './endpoints/reservationDesk'
 import { aiPlannerEndpoints } from './endpoints/aiPlanner'
 
@@ -245,6 +246,7 @@ export default buildConfig({
     Reservations,
     Owners,
     Boats,
+    Amenities,
     EventTypes,
     BoatTypes,
     Extras,
