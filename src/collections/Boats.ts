@@ -853,7 +853,8 @@ export const Boats: CollectionConfig = {
       required: false,
       label: 'Featured Image',
       admin: {
-        description: 'Auto-synced from the gallery image marked as featured. Kept for frontend compatibility.',
+        hidden: true,
+        description: 'Auto-synced from the gallery image marked as featured. Hidden from admins for frontend compatibility.',
       },
     },
     {
