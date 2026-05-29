@@ -157,6 +157,8 @@ export default function ReservationDeskClient() {
   const [payments, setPayments] = useState<PaymentRow[]>([defaultPayment(0)])
   const [paymentMode, setPaymentMode] = useState<'full' | 'multiple'>('full')
   const [paymentCount, setPaymentCount] = useState(2)
+  const [listSearch, setListSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
 
   const selectedBoat = boats.find((boat) => boat.id === form.boatId) || null
 
@@ -454,6 +456,50 @@ export default function ReservationDeskClient() {
       current.map((payment, i) => (i === index ? { ...payment, [key]: value } : payment)),
     )
 
+  const bookingStats = useMemo(() => {
+    const todayKey = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Dubai' })
+
+    return {
+      today: bookings.filter((booking) => new Date(booking.startTime).toLocaleDateString('en-CA', { timeZone: 'Asia/Dubai' }) === todayKey).length,
+      awaitingPayment: bookings.filter((booking) => booking.status === 'awaiting payment').length,
+      upcoming: bookings.filter((booking) => !booking.isPast).length,
+      past: bookings.filter((booking) => booking.isPast).length,
+    }
+  }, [bookings])
+
+  const filteredBookings = useMemo(() => {
+    const query = listSearch.trim().toLowerCase()
+
+    return bookings.filter((booking) => {
+      const matchesStatus = statusFilter === 'all' || booking.status === statusFilter
+      const searchable = [
+        booking.transactionId,
+        booking.id,
+        booking.boatName,
+        booking.guestName,
+        booking.guestEmail,
+        booking.guestPhone,
+        booking.countryCode,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+
+      return matchesStatus && (!query || searchable.includes(query))
+    })
+  }, [bookings, listSearch, statusFilter])
+
+  const statusLabel = (status: string) => {
+    switch (status) {
+      case 'awaiting payment':
+        return 'Awaiting Payment'
+      case 'confirmed_balance_due':
+        return 'Balance Due'
+      default:
+        return status.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase())
+    }
+  }
+
   return (
     <main className="btb-reservation-desk">
       <section className="btb-reservation-desk__hero">
@@ -489,29 +535,114 @@ export default function ReservationDeskClient() {
       ) : null}
 
       {view === 'list' ? (
-        <section className="btb-reservation-desk__panel">
-          <h2>Bookings</h2>
-          <div className="btb-reservation-desk__bookings">
-            {bookings.map((booking) => (
-              <article key={booking.id}>
-                <div>
-                  <strong>{booking.transactionId || booking.id}</strong>
-                  <span>{booking.boatName} - {booking.guestName}</span>
-                  <small>{new Date(booking.startTime).toLocaleString('en-GB', { timeZone: 'Asia/Dubai' })} - {formatAED(booking.totalPrice)}</small>
-                </div>
-                <select value={booking.status} onChange={(event) => updateStatus(booking, event.target.value)}>
+        <section className="btb-reservation-desk__list-shell">
+          <div className="btb-reservation-desk__toolbar">
+            <div>
+              <h2>Bookings</h2>
+              <p>{filteredBookings.length} of {bookings.length} reservations</p>
+            </div>
+
+            <div className="btb-reservation-desk__filters">
+              <label>
+                <span>Search</span>
+                <input
+                  value={listSearch}
+                  onChange={(event) => setListSearch(event.target.value)}
+                  placeholder="Guest, yacht, phone, email or ID"
+                />
+              </label>
+
+              <label>
+                <span>Status</span>
+                <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+                  <option value="all">All statuses</option>
                   <option value="pending">Pending</option>
                   <option value="awaiting payment">Awaiting Payment</option>
-                  <option value="confirmed_balance_due">Confirmed - Balance Due</option>
+                  <option value="confirmed_balance_due">Balance Due</option>
                   <option value="confirmed">Confirmed</option>
                   <option value="cancelled">Cancelled</option>
                 </select>
-                <button type="button" disabled={booking.isPast} onClick={() => editBooking(booking)}>
-                  {booking.isPast ? 'Past trip' : 'Edit'}
-                </button>
-                <a href={booking.adminUrl}>Advanced</a>
-              </article>
-            ))}
+              </label>
+            </div>
+          </div>
+
+          <div className="btb-reservation-desk__dashboard">
+            <div className="btb-reservation-desk__bookings">
+              {filteredBookings.map((booking) => (
+                <article className="btb-reservation-desk__booking-card" key={booking.id}>
+                  <div className="btb-reservation-desk__booking-main">
+                    <div>
+                      <span className="btb-reservation-desk__eyebrow">Booking #{booking.transactionId || booking.id}</span>
+                      <h3>{booking.boatName}</h3>
+                      <p>{booking.guestName}</p>
+                    </div>
+
+                    <span className={`btb-reservation-desk__status btb-reservation-desk__status--${booking.status.replace(/[^a-z0-9]+/g, '-')}`}>
+                      {statusLabel(booking.status)}
+                    </span>
+                  </div>
+
+                  <dl className="btb-reservation-desk__booking-meta">
+                    <div>
+                      <dt>Trip</dt>
+                      <dd>{new Date(booking.startTime).toLocaleString('en-GB', { timeZone: 'Asia/Dubai' })}</dd>
+                    </div>
+                    <div>
+                      <dt>Total</dt>
+                      <dd>{formatAED(booking.totalPrice)}</dd>
+                    </div>
+                    <div>
+                      <dt>Guest contact</dt>
+                      <dd>{booking.countryCode} {booking.guestPhone || 'No phone'}</dd>
+                    </div>
+                  </dl>
+
+                  <div className="btb-reservation-desk__booking-actions">
+                    <label className="btb-reservation-desk__status-select">
+                      <span>Status</span>
+                      <select value={booking.status} onChange={(event) => updateStatus(booking, event.target.value)}>
+                        <option value="pending">Pending</option>
+                        <option value="awaiting payment">Awaiting Payment</option>
+                        <option value="confirmed_balance_due">Confirmed - Balance Due</option>
+                        <option value="confirmed">Confirmed</option>
+                        <option value="cancelled">Cancelled</option>
+                      </select>
+                    </label>
+
+                    <button type="button" disabled={booking.isPast} onClick={() => editBooking(booking)}>
+                      {booking.isPast ? 'Past trip' : 'Edit'}
+                    </button>
+                    <a href={booking.adminUrl}>Advanced</a>
+                  </div>
+                </article>
+              ))}
+
+              {filteredBookings.length === 0 ? (
+                <div className="btb-reservation-desk__empty">
+                  <h3>No bookings found</h3>
+                  <p>Adjust your search or status filter.</p>
+                </div>
+              ) : null}
+            </div>
+
+            <aside className="btb-reservation-desk__summary">
+              <div>
+                <span>Today</span>
+                <strong>{bookingStats.today}</strong>
+              </div>
+              <div>
+                <span>Awaiting Payment</span>
+                <strong>{bookingStats.awaitingPayment}</strong>
+              </div>
+              <div>
+                <span>Upcoming</span>
+                <strong>{bookingStats.upcoming}</strong>
+              </div>
+              <div>
+                <span>Past Trips</span>
+                <strong>{bookingStats.past}</strong>
+              </div>
+            </aside>
           </div>
         </section>
       ) : (
