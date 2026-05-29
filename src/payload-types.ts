@@ -720,7 +720,7 @@ export interface Boat {
    */
   routes?: (string | Route)[] | null;
   /**
-   * Auto-synced from the gallery image marked as featured. Kept for frontend compatibility.
+   * Auto-synced from the gallery image marked as featured. Hidden from admins for frontend compatibility.
    */
   media?: (string | null) | Media;
   /**
