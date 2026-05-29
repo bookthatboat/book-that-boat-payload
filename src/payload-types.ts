@@ -70,6 +70,7 @@ export interface Config {
     reservations: Reservation;
     owners: Owner;
     boats: Boat;
+    amenities: Amenity;
     'event-types': EventType;
     'boat-types': BoatType;
     extras: Extra;
@@ -97,6 +98,7 @@ export interface Config {
     reservations: ReservationsSelect<false> | ReservationsSelect<true>;
     owners: OwnersSelect<false> | OwnersSelect<true>;
     boats: BoatsSelect<false> | BoatsSelect<true>;
+    amenities: AmenitiesSelect<false> | AmenitiesSelect<true>;
     'event-types': EventTypesSelect<false> | EventTypesSelect<true>;
     'boat-types': BoatTypesSelect<false> | BoatTypesSelect<true>;
     extras: ExtrasSelect<false> | ExtrasSelect<true>;
@@ -692,6 +694,13 @@ export interface Boat {
         id?: string | null;
       }[]
     | null;
+  /**
+   * Select from the global amenities list. These selections sync to the legacy amenities list used by the frontend.
+   */
+  globalAmenities?: (string | Amenity)[] | null;
+  /**
+   * Auto-synced from the Amenities checklist. Keep only for backwards compatibility.
+   */
   amenities?:
     | {
         item: string;
@@ -710,13 +719,20 @@ export interface Boat {
    * Select predefined routes for this boat
    */
   routes?: (string | Route)[] | null;
-  media: string | Media;
+  /**
+   * Auto-synced from the gallery image marked as featured. Kept for frontend compatibility.
+   */
+  media?: (string | null) | Media;
   /**
    * Bulk upload up to 20 images, then drag thumbnails to reorder. Save the boat after uploading/reordering.
    */
   gallery?:
     | {
         image: string | Media;
+        /**
+         * Only one gallery image can be featured. This syncs to the boat Featured Image field.
+         */
+        isFeatured?: boolean | null;
         id?: string | null;
       }[]
     | null;
@@ -2190,6 +2206,22 @@ export interface Location {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "amenities".
+ */
+export interface Amenity {
+  id: string;
+  name: string;
+  category?: ('comfort' | 'entertainment' | 'food_drink' | 'safety' | 'water_sports' | 'other') | null;
+  /**
+   * Lower numbers appear first in the Boat amenity checklist.
+   */
+  sortOrder?: number | null;
+  isActive?: boolean | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "media".
  */
 export interface Media {
@@ -2515,6 +2547,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'boats';
         value: string | Boat;
+      } | null)
+    | ({
+        relationTo: 'amenities';
+        value: string | Amenity;
       } | null)
     | ({
         relationTo: 'event-types';
@@ -2844,6 +2880,7 @@ export interface BoatsSelect<T extends boolean = true> {
         included?: T;
         id?: T;
       };
+  globalAmenities?: T;
   amenities?:
     | T
     | {
@@ -2864,6 +2901,7 @@ export interface BoatsSelect<T extends boolean = true> {
     | T
     | {
         image?: T;
+        isFeatured?: T;
         id?: T;
       };
   boatSpecific?:
@@ -2886,6 +2924,18 @@ export interface BoatsSelect<T extends boolean = true> {
   averageRating?: T;
   reviewCount?: T;
   specialEventTags?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "amenities_select".
+ */
+export interface AmenitiesSelect<T extends boolean = true> {
+  name?: T;
+  category?: T;
+  sortOrder?: T;
+  isActive?: T;
   updatedAt?: T;
   createdAt?: T;
 }
