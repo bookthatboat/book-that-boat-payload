@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import configPromise from '@payload-config'
 import { headers as getHeaders } from 'next/headers'
 import { redirect } from 'next/navigation'
@@ -6,6 +7,15 @@ import { getPayload } from 'payload'
 import { BookingCalendarClient, type CalendarBooking } from '@/components/BookingCalendar/BookingCalendarClient'
 
 export const dynamic = 'force-dynamic'
+
+export const metadata: Metadata = {
+  title: 'Booking Calendar | Book That Boat Admin',
+  icons: {
+    icon: '/btb-admin-icon.svg',
+    shortcut: '/btb-admin-icon.svg',
+    apple: '/btb-admin-icon.svg',
+  },
+}
 
 type RelatedDoc = {
   id?: string

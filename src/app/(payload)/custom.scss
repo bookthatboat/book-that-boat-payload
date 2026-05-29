@@ -1342,3 +1342,294 @@
     width: 100%;
   }
 }
+
+/* Reservation Desk form/wizard redesign */
+.btb-reservation-desk__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 18px;
+  align-items: start;
+}
+
+.btb-reservation-desk__panel {
+  padding: 22px;
+}
+
+.btb-reservation-desk__panel h2 {
+  margin: 0 0 18px;
+  color: #061b35;
+  font-size: 22px;
+  line-height: 1.15;
+}
+
+.btb-reservation-desk__panel h3 {
+  margin: 22px 0 12px;
+  color: #061b35;
+  font-size: 16px;
+}
+
+.btb-reservation-desk__form,
+.btb-reservation-desk__panel > div:not(.btb-reservation-desk__review):not(.btb-reservation-desk__total):not(.btb-reservation-desk__choice) {
+  display: grid;
+  gap: 16px;
+}
+
+.btb-reservation-desk__form label,
+.btb-reservation-desk__panel label {
+  display: grid;
+  gap: 7px;
+  color: #314961;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.btb-reservation-desk__form input,
+.btb-reservation-desk__form select,
+.btb-reservation-desk__form textarea,
+.btb-reservation-desk__panel input,
+.btb-reservation-desk__panel select,
+.btb-reservation-desk__panel textarea {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid #d8e6f3;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #071a33;
+  padding: 0 13px;
+  font-size: 15px;
+  box-shadow: 0 1px 0 rgba(15, 43, 76, 0.03);
+}
+
+.btb-reservation-desk__form textarea,
+.btb-reservation-desk__panel textarea {
+  min-height: 110px;
+  padding-top: 12px;
+  resize: vertical;
+}
+
+.btb-reservation-desk__form input:focus,
+.btb-reservation-desk__form select:focus,
+.btb-reservation-desk__form textarea:focus,
+.btb-reservation-desk__panel input:focus,
+.btb-reservation-desk__panel select:focus,
+.btb-reservation-desk__panel textarea:focus {
+  outline: none;
+  border-color: #0b82d8;
+  box-shadow: 0 0 0 3px rgba(6, 147, 227, 0.13);
+}
+
+.btb-reservation-desk__panel button {
+  min-height: 46px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 16px;
+  background: linear-gradient(135deg, #0693e3 0%, #173e91 100%);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 850;
+  cursor: pointer;
+  box-shadow: 0 10px 22px rgba(23, 62, 145, 0.16);
+}
+
+.btb-reservation-desk__panel button[type='button']:not(:last-child) {
+  margin-right: 10px;
+}
+
+.reservation-desk__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.btb-reservation-desk__yacht-results {
+  display: grid;
+  gap: 8px;
+  max-height: 300px;
+  overflow: auto;
+  border: 1px solid #dfeaf5;
+  border-radius: 12px;
+  padding: 8px;
+  background: #f8fbff;
+}
+
+.btb-reservation-desk__yacht-results button {
+  display: grid;
+  gap: 4px;
+  min-height: auto;
+  border: 1px solid #dce8f5;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #061b35;
+  padding: 12px;
+  text-align: left;
+  box-shadow: none;
+}
+
+.btb-reservation-desk__yacht-results button strong {
+  font-size: 14px;
+}
+
+.btb-reservation-desk__yacht-results button span {
+  color: #65798e;
+  font-size: 13px;
+}
+
+.btb-reservation-desk__filter {
+  max-width: 320px;
+}
+
+.btb-reservation-desk__extras {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 12px;
+}
+
+.btb-reservation-desk__extras > div {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #dfeaf5;
+  border-radius: 12px;
+  padding: 14px;
+  background: #f8fbff;
+}
+
+.btb-reservation-desk__extras strong {
+  color: #061b35;
+}
+
+.btb-reservation-desk__extras span {
+  color: #65798e;
+  font-size: 13px;
+}
+
+.btb-reservation-desk__inline,
+.btb-reservation-desk__payment {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) 110px 130px auto;
+  gap: 10px;
+  align-items: end;
+  border: 1px solid #dfeaf5;
+  border-radius: 12px;
+  padding: 12px;
+  background: #f8fbff;
+  margin-bottom: 10px;
+}
+
+.btb-reservation-desk__payment {
+  grid-template-columns: 130px 150px 160px 160px;
+}
+
+.btb-reservation-desk__total {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: center;
+  border: 1px solid #bfe3ff;
+  border-radius: 14px;
+  padding: 18px;
+  background: linear-gradient(135deg, #eef8ff 0%, #ffffff 100%);
+}
+
+.btb-reservation-desk__total span {
+  color: #456179;
+  font-weight: 800;
+}
+
+.btb-reservation-desk__total strong {
+  color: #061b35;
+  font-size: 26px;
+}
+
+.btb-reservation-desk__choice {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.btb-reservation-desk__choice button {
+  background: #f2f7fc;
+  color: #173e91;
+  box-shadow: none;
+  border: 1px solid #d9e8f5;
+}
+
+.btb-reservation-desk__choice button.is-active {
+  background: linear-gradient(135deg, #0693e3 0%, #173e91 100%);
+  color: #ffffff;
+  border-color: transparent;
+  box-shadow: 0 10px 22px rgba(23, 62, 145, 0.16);
+}
+
+.btb-reservation-desk__review {
+  display: grid;
+  gap: 10px;
+}
+
+.btb-reservation-desk__review p {
+  margin: 0;
+  border: 1px solid #e1ebf5;
+  border-radius: 10px;
+  background: #f8fbff;
+  padding: 12px;
+  color: #314961;
+}
+
+.btb-reservation-desk__review strong {
+  color: #061b35;
+}
+
+.btb-reservation-desk__sidebar {
+  display: grid;
+  gap: 12px;
+}
+
+.btb-reservation-desk__sidebar dl,
+.btb-reservation-desk__layout aside,
+.btb-reservation-desk__summary-card {
+  border: 1px solid #e0ebf6;
+  border-radius: 14px;
+  background: #ffffff;
+  padding: 16px;
+  box-shadow: 0 12px 28px rgba(15, 43, 76, 0.06);
+}
+
+.btb-reservation-desk__layout aside h3 {
+  margin: 0 0 12px;
+  color: #061b35;
+}
+
+.btb-reservation-desk__layout aside dt {
+  color: #698199;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.btb-reservation-desk__layout aside dd {
+  margin: 4px 0 12px;
+  color: #0a1d36;
+  font-weight: 800;
+}
+
+@media (max-width: 900px) {
+  .btb-reservation-desk__layout,
+  .reservation-desk__grid,
+  .btb-reservation-desk__inline,
+  .btb-reservation-desk__payment,
+  .btb-reservation-desk__choice {
+    grid-template-columns: 1fr;
+  }
+
+  .btb-reservation-desk__panel {
+    padding: 16px;
+  }
+
+  .btb-reservation-desk__panel button {
+    width: 100%;
+    margin: 6px 0 0 !important;
+  }
+
+  .btb-reservation-desk__total {
+    display: grid;
+  }
+}
