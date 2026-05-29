@@ -1,5 +1,6 @@
 import { ReservationPriceCalculator as ReservationPriceCalculator_6b9447bf0625c785b684c501d6ec1945 } from '../../../components/ReservationPriceCalculator/ReservationPriceCalculator'
 import { ReservationPaymentsManager as ReservationPaymentsManager_4205f237dc282bc50a5cb34b3f824ce7 } from '../../../components/ReservationPaymentsManager/ReservationPaymentsManager'
+import { AmenityChecklistField as AmenityChecklistField_9e2f34a8ca09934ba3c49dbe6612a877 } from '../../../components/AmenityChecklistField/AmenityChecklistField'
 import { BoatExtrasManager as BoatExtrasManager_24e4d350c7ddbdf532ae72c002d450bc } from '../../../components/BoatExtrasManager/BoatExtrasManager'
 import { BoatGalleryField as BoatGalleryField_1b5d7a1be6a084f613ed10fa04ab9176 } from '../../../components/BoatGalleryField/BoatGalleryField'
 import { RscEntryLexicalCell as RscEntryLexicalCell_44fe37237e0ebf4470c9990d8cb7b07e } from '@payloadcms/richtext-lexical/rsc'
@@ -31,6 +32,7 @@ import { CollectionCards as CollectionCards_ab83ff7e88da8d3530831f296ec4756a } f
 export const importMap = {
   "/components/ReservationPriceCalculator/ReservationPriceCalculator#ReservationPriceCalculator": ReservationPriceCalculator_6b9447bf0625c785b684c501d6ec1945,
   "/components/ReservationPaymentsManager/ReservationPaymentsManager#ReservationPaymentsManager": ReservationPaymentsManager_4205f237dc282bc50a5cb34b3f824ce7,
+  "/components/AmenityChecklistField/AmenityChecklistField#AmenityChecklistField": AmenityChecklistField_9e2f34a8ca09934ba3c49dbe6612a877,
   "/components/BoatExtrasManager/BoatExtrasManager#BoatExtrasManager": BoatExtrasManager_24e4d350c7ddbdf532ae72c002d450bc,
   "/components/BoatGalleryField/BoatGalleryField#BoatGalleryField": BoatGalleryField_1b5d7a1be6a084f613ed10fa04ab9176,
   "@payloadcms/richtext-lexical/rsc#RscEntryLexicalCell": RscEntryLexicalCell_44fe37237e0ebf4470c9990d8cb7b07e,
