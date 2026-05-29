@@ -15,6 +15,7 @@ type MediaDoc = {
 type GalleryItem = {
   id?: string
   image?: string | MediaDoc | null
+  isFeatured?: boolean
 }
 
 const MAX_IMAGES = 20
@@ -66,6 +67,7 @@ const normaliseGalleryItems = (items: unknown): GalleryItem[] => {
       return {
         id: item.id,
         image: item.image,
+        isFeatured: Boolean(item.isFeatured),
       }
     })
     .filter(Boolean) as GalleryItem[]
@@ -347,8 +349,9 @@ export function BoatGalleryField({ path, label }: any) {
 
       updateGallery([
         ...galleryItems,
-        ...uploadedDocs.map((doc) => ({
+        ...uploadedDocs.map((doc, index) => ({
           image: doc.id,
+          isFeatured: galleryItems.length === 0 && index === 0,
         })),
       ])
 
@@ -379,6 +382,16 @@ export function BoatGalleryField({ path, label }: any) {
     if (index >= galleryItems.length - 1) return
     updateGallery(moveItem(galleryItems, index, index + 1))
     setMessage('Gallery order changed. Save the boat to keep the new order.')
+  }
+
+  const setFeaturedImage = (index: number) => {
+    updateGallery(
+      galleryItems.map((item, itemIndex) => ({
+        ...item,
+        isFeatured: itemIndex === index,
+      })),
+    )
+    setMessage('Featured image selected. Save the boat to keep this featured image.')
   }
 
   return (
@@ -558,6 +571,19 @@ export function BoatGalleryField({ path, label }: any) {
                         }}
                       >
                         Down
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setFeaturedImage(index)}
+                        disabled={Boolean(item.isFeatured)}
+                        style={{
+                          ...styles.cardButton,
+                          opacity: item.isFeatured ? 0.5 : 1,
+                          cursor: item.isFeatured ? 'not-allowed' : 'pointer',
+                        }}
+                      >
+                        Set featured
                       </button>
 
                       <button
