@@ -699,7 +699,7 @@ export interface Boat {
    */
   globalAmenities?: (string | Amenity)[] | null;
   /**
-   * Auto-synced from the Amenities checklist. Keep only for backwards compatibility.
+   * Auto-synced from the Amenities checklist. Hidden from admins for backwards compatibility.
    */
   amenities?:
     | {

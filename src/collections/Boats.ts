@@ -778,8 +778,9 @@ export const Boats: CollectionConfig = {
         },
       ],
       admin: {
+        hidden: true,
         initCollapsed: true,
-        description: 'Auto-synced from the Amenities checklist. Keep only for backwards compatibility.',
+        description: 'Auto-synced from the Amenities checklist. Hidden from admins for backwards compatibility.',
       },
     },
     {
