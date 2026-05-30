@@ -23,6 +23,7 @@ import { Reviews } from './collections/Reviews'
 import { Coupons } from './collections/Coupons'
 import { startPaymentPolling } from './collections/Reservations'
 import { Subscribers } from './collections/Subscribers'
+import { yachtDeskEndpoints } from './endpoints/yachtDesk'
 import { Amenities } from './collections/Amenities'
 import { reservationDeskEndpoints } from './endpoints/reservationDesk'
 import { aiPlannerEndpoints } from './endpoints/aiPlanner'
@@ -82,6 +83,7 @@ export default buildConfig({
   },
 },
   endpoints: [
+    ...yachtDeskEndpoints,
     ...reservationDeskEndpoints,
     ...aiPlannerEndpoints,
     {
