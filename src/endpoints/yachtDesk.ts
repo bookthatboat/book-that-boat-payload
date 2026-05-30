@@ -33,9 +33,24 @@ const getMediaUrl = (media: any) => {
   return media.blobUrl || media.url || media.thumbnailURL || ''
 }
 
+const getOptionName = (doc: any) => {
+  if (!doc) return ''
+  return (
+    doc.name ||
+    doc.title ||
+    doc.harbour ||
+    doc.location ||
+    doc.routeName ||
+    doc.code ||
+    doc.email ||
+    doc.slug ||
+    String(doc.id)
+  )
+}
+
 const mapOption = (doc: any) => ({
   id: String(doc.id),
-  name: doc.name || doc.title || doc.code || doc.email || String(doc.id),
+  name: getOptionName(doc),
 })
 
 const mapAmenity = (doc: any) => ({
