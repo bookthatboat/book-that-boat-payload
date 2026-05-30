@@ -1653,3 +1653,413 @@
   font-size: 12px;
   font-weight: 850;
 }
+
+/* Yacht Desk */
+.btb-yacht-desk {
+  min-height: 100vh;
+  padding: 24px;
+  background: linear-gradient(180deg, rgba(241, 248, 255, 0.95) 0%, #ffffff 34%);
+  color: #071a33;
+}
+
+.btb-yacht-desk__hero,
+.btb-yacht-desk__list-shell,
+.btb-yacht-desk__panel,
+.btb-yacht-desk__side {
+  border: 1px solid #e4edf7;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 16px 40px rgba(15, 43, 76, 0.08);
+}
+
+.btb-yacht-desk__hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px;
+  margin-bottom: 18px;
+}
+
+.btb-yacht-desk__hero p,
+.btb-yacht-desk__eyebrow {
+  margin: 0 0 6px;
+  color: #0878c9;
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.btb-yacht-desk__hero h1 {
+  margin: 0;
+  color: #061b35;
+  font-size: 28px;
+}
+
+.btb-yacht-desk__hero span {
+  display: block;
+  margin-top: 8px;
+  color: #5d6f86;
+}
+
+.btb-yacht-desk__hero-actions,
+.btb-yacht-desk__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.btb-yacht-desk button,
+.btb-yacht-desk a {
+  min-height: 44px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 15px;
+  background: linear-gradient(135deg, #0693e3 0%, #173e91 100%);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 850;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.btb-yacht-desk button:disabled {
+  background: #e8eef5;
+  color: #6c7d90;
+  cursor: not-allowed;
+}
+
+.btb-yacht-desk__alert {
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  font-weight: 750;
+}
+
+.btb-yacht-desk__alert.is-error {
+  background: #fff1f1;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+.btb-yacht-desk__alert.is-success {
+  background: #eefdf5;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+}
+
+.btb-yacht-desk__list-shell,
+.btb-yacht-desk__panel,
+.btb-yacht-desk__side {
+  padding: 20px;
+}
+
+.btb-yacht-desk__toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: end;
+  margin-bottom: 18px;
+}
+
+.btb-yacht-desk__toolbar h2,
+.btb-yacht-desk__panel h2 {
+  margin: 0;
+  color: #061b35;
+}
+
+.btb-yacht-desk__toolbar p {
+  margin: 6px 0 0;
+  color: #68788d;
+}
+
+.btb-yacht-desk__filters {
+  display: grid;
+  grid-template-columns: minmax(260px, 380px) 190px;
+  gap: 12px;
+}
+
+.btb-yacht-desk label {
+  display: grid;
+  gap: 7px;
+  color: #314961;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.btb-yacht-desk input,
+.btb-yacht-desk select,
+.btb-yacht-desk textarea {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid #d8e6f3;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #071a33;
+  padding: 0 13px;
+  font-size: 15px;
+}
+
+.btb-yacht-desk textarea {
+  min-height: 120px;
+  padding-top: 12px;
+}
+
+.btb-yacht-desk__dashboard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 18px;
+}
+
+.btb-yacht-desk__cards {
+  display: grid;
+  gap: 14px;
+}
+
+.btb-yacht-desk__card {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 16px;
+  border: 1px solid #e0ebf6;
+  border-radius: 14px;
+  padding: 16px;
+  background: #ffffff;
+}
+
+.btb-yacht-desk__image {
+  min-height: 108px;
+  border-radius: 12px;
+  background: #eef6ff;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #607990;
+  font-weight: 800;
+}
+
+.btb-yacht-desk__image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.btb-yacht-desk__card-main {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.btb-yacht-desk__card h3 {
+  margin: 0;
+  color: #061b35;
+  font-size: 19px;
+}
+
+.btb-yacht-desk__card p {
+  margin: 6px 0 14px;
+  color: #60758a;
+}
+
+.btb-yacht-desk__status {
+  flex: 0 0 auto;
+  align-self: start;
+  border-radius: 999px;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.btb-yacht-desk__status.is-active {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.btb-yacht-desk__status.is-archived {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.btb-yacht-desk__summary {
+  display: grid;
+  gap: 12px;
+}
+
+.btb-yacht-desk__summary div {
+  border: 1px solid #e0ebf6;
+  border-radius: 14px;
+  background: #f8fbff;
+  padding: 16px;
+}
+
+.btb-yacht-desk__summary span,
+.btb-yacht-desk__side dt {
+  display: block;
+  color: #668097;
+  font-size: 12px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.btb-yacht-desk__summary strong {
+  display: block;
+  margin-top: 5px;
+  font-size: 28px;
+  color: #061b35;
+}
+
+.btb-yacht-desk__steps {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 6px 0 16px;
+}
+
+.btb-yacht-desk__steps button {
+  flex: 0 0 auto;
+  border: 1px solid #d9e5f2;
+  background: #ffffff;
+  color: #244058;
+  border-radius: 999px;
+}
+
+.btb-yacht-desk__steps button.is-active {
+  background: linear-gradient(135deg, #0693e3 0%, #173e91 100%);
+  color: #ffffff;
+}
+
+.btb-yacht-desk__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 18px;
+  align-items: start;
+}
+
+.btb-yacht-desk__form {
+  display: grid;
+  gap: 16px;
+}
+
+.btb-yacht-desk__toggle {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+}
+
+.btb-yacht-desk__toggle input,
+.btb-yacht-desk__checkbox input {
+  width: auto;
+  min-height: auto;
+}
+
+.btb-yacht-desk__gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.btb-yacht-desk__gallery article {
+  border: 1px solid #dfeaf5;
+  border-radius: 12px;
+  padding: 10px;
+  background: #f8fbff;
+  display: grid;
+  gap: 8px;
+}
+
+.btb-yacht-desk__gallery article > div {
+  height: 120px;
+  border-radius: 10px;
+  background: #eef6ff;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btb-yacht-desk__gallery img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.btb-yacht-desk__gallery strong {
+  border-radius: 999px;
+  background: #ecfdf5;
+  color: #047857;
+  padding: 6px 9px;
+  font-size: 12px;
+}
+
+.btb-yacht-desk__fieldset {
+  border: 1px solid #dfeaf5;
+  border-radius: 12px;
+  padding: 14px;
+  margin: 0 0 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.btb-yacht-desk__fieldset legend {
+  padding: 0 6px;
+  font-weight: 900;
+  color: #061b35;
+}
+
+.btb-yacht-desk__checkbox {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+}
+
+.btb-yacht-desk__inline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.btb-yacht-desk__review {
+  display: grid;
+  gap: 10px;
+}
+
+.btb-yacht-desk__review p,
+.btb-yacht-desk__side dd {
+  margin: 0 0 10px;
+  border: 1px solid #e1ebf5;
+  border-radius: 10px;
+  background: #f8fbff;
+  padding: 12px;
+  color: #314961;
+}
+
+@media (max-width: 900px) {
+  .btb-yacht-desk {
+    padding: 14px;
+  }
+
+  .btb-yacht-desk__hero,
+  .btb-yacht-desk__toolbar,
+  .btb-yacht-desk__card,
+  .btb-yacht-desk__card-main,
+  .btb-yacht-desk__dashboard,
+  .btb-yacht-desk__layout,
+  .btb-yacht-desk__filters,
+  .btb-yacht-desk__inline {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .btb-yacht-desk__hero-actions a,
+  .btb-yacht-desk__hero-actions button,
+  .btb-yacht-desk__actions a,
+  .btb-yacht-desk__actions button,
+  .btb-yacht-desk__panel button {
+    width: 100%;
+  }
+}
